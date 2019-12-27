@@ -854,8 +854,7 @@ router_add_cluster(router *r, cluster *cl)
 			server_add_secondaries(w->server,
 					cl->members.anyof->servers,
 					cl->members.anyof->count);
-			if (cl->type == FAILOVER)
-				server_set_failover(w->server);
+			server_set_failover(w->server);
 		}
 	} else if (cl->type == CARBON_CH ||
 			cl->type == FNV1A_CH ||
