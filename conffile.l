@@ -53,6 +53,11 @@ cluster				{
 						BEGIN(idcl);
 						return crFAILOVER;
 					}
+<cl>lb				{
+						identstate = idcl;
+						BEGIN(idcl);
+						return crFAILOVER;
+					}
 <idcl>useall			return crUSEALL;
 <cl>carbon_ch		{
 						identstate = idcl;
