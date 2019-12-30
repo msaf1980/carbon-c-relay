@@ -30,6 +30,8 @@
 #include <openssl/ssl.h>
 #endif
 
+#include <ev.h>
+
 #define PMODE_NORM    (1 << 0)
 #define PMODE_AGGR    (1 << 1)
 #define PMODE_HASH    (1 << 2)
@@ -50,13 +52,21 @@ typedef struct {
 	server *dest;
 } destination;
 
-typedef struct _router_listener {
+typedef struct _router_listener listener;
+
+typedef struct ev_io_sock {
+	ev_io ev;
+	int sock;
+	listener *lsnr;
+} ev_io_sock;
+
+struct _router_listener {
 	con_type lsnrtype;
 	con_trnsp transport;
 	con_proto ctype;
 	char *ip;
 	unsigned short port;
-	int *socks;
+	ev_io_sock *socks;
 #ifdef HAVE_SSL
 	SSL_CTX *ctx;
 	SSL **sslstrms;
@@ -65,7 +75,7 @@ typedef struct _router_listener {
 #endif
 	struct addrinfo *saddrs;
 	struct _router_listener *next;
-} listener;
+};
 
 typedef struct _router router;
 typedef enum { SUB, CUM } col_mode;

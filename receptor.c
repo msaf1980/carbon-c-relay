@@ -124,7 +124,7 @@ bindlistenip(listener *lsnr, unsigned int backlog)
 			binderr = 1;
 			break;
 		}
-		lsnr->socks[sockcur++] = sock;
+		lsnr->socks[sockcur++].sock = sock;
 
 		(void) setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 		optval = 1;  /* allow takeover */
@@ -153,20 +153,20 @@ bindlistenip(listener *lsnr, unsigned int backlog)
 				binderr = 1;
 				break;
 			}
-			logout("listening on tcp%d %s port %u\n",
-					resw->ai_family == PF_INET6 ? 6 : 4, saddr, lsnr->port);
+			logout("listening on tcp%d %s port %u (socket %d)\n",
+					resw->ai_family == PF_INET6 ? 6 : 4, saddr, lsnr->port, sock);
 		} else {
-			logout("listening on udp%d %s port %u\n",
-					resw->ai_family == PF_INET6 ? 6 : 4, saddr, lsnr->port);
+			logout("listening on udp%d %s port %u (socket %d)\n",
+					resw->ai_family == PF_INET6 ? 6 : 4, saddr, lsnr->port, sock);
 		}
 	}
 	if (binderr != 0) {
 		/* close all opened sockets */
 		for (--sockcur; sockcur >= 0; sockcur--)
-			close(lsnr->socks[sockcur]);
+			close(lsnr->socks[sockcur].sock);
 		return 1;
 	}
-	lsnr->socks[sockcur] = -1;
+	lsnr->socks[sockcur].sock = -1;
 
 	return 0;
 }
@@ -191,8 +191,8 @@ bindlistenunix(listener *lsnr, unsigned int backlog)
 				lsnr->ip, strerror(errno));
 		return 1;
 	}
-	lsnr->socks[0] = sock;
-	lsnr->socks[1] = -1;
+	lsnr->socks[0].sock = sock;
+	lsnr->socks[1].sock = -1;
 
 	memset(&srvr, 0, sizeof(struct sockaddr_un));
 	srvr.sun_family = PF_LOCAL;
@@ -241,8 +241,8 @@ static void
 close_socks(listener *lsnr)
 {
 	int i;
-	for (i = 0; lsnr->socks[i] != -1; i++)
-		close(lsnr->socks[i]);
+	for (i = 0; lsnr->socks[i].sock != -1; i++)
+		close(lsnr->socks[i].sock);
 	logout("closed listener for %s %s:%u\n",
 			lsnr->ctype == CON_UDP ? "udp" : "tcp",
 			lsnr->ip == NULL ? "" : lsnr->ip, lsnr->port);
@@ -251,7 +251,7 @@ close_socks(listener *lsnr)
 static void
 destroy_usock(listener *lsnr)
 {
-	close(lsnr->socks[0]);
+	close(lsnr->socks[0].sock);
 	unlink(lsnr->ip);
 	logout("removed listener for %s\n", lsnr->ip);
 }

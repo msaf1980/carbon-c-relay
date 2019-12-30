@@ -66,6 +66,14 @@ aggregator_new(
 		return NULL;
 	}
 	ret->disp_conn = dispatch_addconnection_aggr(intconn[0]);
+	if (ret->disp_conn == -1) {
+		logerr("failed to add pipe for aggregator: %s\n",
+				strerror(errno));
+		close(intconn[0]);
+		close(intconn[1]);
+		free(ret);
+		return NULL;
+	}
 	ret->fd = intconn[1];
 
 	ret->interval = interval;

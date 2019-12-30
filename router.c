@@ -218,7 +218,7 @@ determine_if_regex(allocator *a, char workercnt, route *r, char *pat)
 		int i;
 		int ret;
 
-		r->rule = ra_malloc(a, sizeof(*r->rule) * workercnt);
+		r->rule = ra_malloc(a, sizeof(*r->rule) * workercnt + 1);
 		if (r->rule == NULL) {
 			logerr("determine_if_regex: malloc failed for "
 					"regular expressions\n");
@@ -238,7 +238,7 @@ determine_if_regex(allocator *a, char workercnt, route *r, char *pat)
 				return REG_ESPACE;  /* lie closest to the truth */
 			}
 		}
-		for (i = 1; i < workercnt; i++) {
+		for (i = 1; i <= workercnt; i++) {
 			if (regcomp(&r->rule[i], pat, REG_EXTENDED) != 0) {
 				while (--i >= 0)
 					regfree(&r->rule[i]);
@@ -498,7 +498,8 @@ router_validate_path(router *rtr, char *path)
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) < 0)
 	{
 		char errbuf[512];
-		if (errno == EOPNOTSUPP && st.st_mode & S_IFSOCK) {
+		/* got on existing unix socket ENXIO - No such device or address */
+		if ((errno == EOPNOTSUPP || errno == ENXIO) && st.st_mode & S_IFSOCK) {
 			/* This is pretty lame, but I don't know a better way: we
 			 * can't open sockets in use, and as it stands we can't
 			 * check it is *us* who have the socket in use.  So, we
@@ -1112,10 +1113,10 @@ router_add_listener(
 	addrcnt = saddrs == NULL ? 1 : 0;
 	for (swalk = saddrs; swalk != NULL; swalk = swalk->ai_next)
 		addrcnt++;
-	lwalk->socks = ra_malloc(rtr->a, sizeof(int) * (addrcnt + 1));
+	lwalk->socks = ra_malloc(rtr->a, sizeof(ev_io_sock) * (addrcnt + 1));
 	if (lwalk->socks == NULL)
 		return ra_strdup(rtr->a, "malloc failed for sockets");
-	lwalk->socks[0] = -1;
+	lwalk->socks[0].sock = -1;
 
 	return NULL;
 }
@@ -2383,11 +2384,13 @@ void
 router_transplant_listener_socks(router *rtr, listener *olsnr, listener *nlsnr)
 {
 	int cnt;
-	for (cnt = 0; olsnr->socks[cnt] != -1; cnt++)
+	for (cnt = 0; olsnr->socks[cnt].sock != -1; cnt++)
 		;
 	cnt++;
-	nlsnr->socks = ra_malloc(rtr->a, sizeof(int) * (cnt));
-	memmove(nlsnr->socks, olsnr->socks, sizeof(int) * (cnt));
+	nlsnr->socks = ra_malloc(rtr->a, sizeof(ev_io_sock) * (cnt));
+	memmove(nlsnr->socks, olsnr->socks, sizeof(ev_io_sock) * (cnt));
+	for (cnt = 0; nlsnr->socks[cnt].sock != -1; cnt++)
+		nlsnr->socks[cnt].lsnr = nlsnr;
 }
 
 /**

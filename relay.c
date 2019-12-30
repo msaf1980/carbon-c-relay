@@ -859,6 +859,10 @@ main(int argc, char * const argv[])
 	OpenSSL_add_all_algorithms();
 #endif
 
+	if (dispatch_workers_alloc(workercount) == -1) {
+		exit_err("failed to allocate memory for workers\n");
+	}
+
 	if ((rtr = router_readconfig(NULL, config, workercount,
 					queuesize, batchsize, maxstalls,
 					iotimeout, sockbufsize, listenport)) == NULL)
@@ -926,16 +930,19 @@ main(int argc, char * const argv[])
 		exit_err("failed to ignore SIGPIPE: %s\n", strerror(errno));
 	}
 
-	if (dispatch_workers_alloc(workercount) == -1) {
-		exit_err("failed to allocate memory for workers\n");
-	}
-
 	dispatch_set_bufsize(sockbufsize);
 	if (dispatch_init_listeners() != 0) {
 		exit_err("failed to allocate listeners\n");
 	}
 
 	lsnrs = router_get_listeners(rtr);
+	if (allowed_chars == NULL)
+		allowed_chars = "-_:#";
+
+	if (dispatch_start_connections(rtr, allowed_chars, maxinplen, maxmetriclen) < workercount) {
+		logerr("shutting down due to errors\n");
+		keep_running = 0;
+	}
 	for ( ; lsnrs != NULL; lsnrs = lsnrs->next) {
 		if (bindlisten(lsnrs, listenbacklog) != 0) {
 			exit_err("failed to setup listener\n");
@@ -945,13 +952,6 @@ main(int argc, char * const argv[])
 		}
 	}
 
-	if (allowed_chars == NULL)
-		allowed_chars = "-_:#";
-
-	if (dispatch_new_connections(rtr, allowed_chars, maxinplen, maxmetriclen) < workercount) {
-		logerr("shutting down due to errors\n");
-		keep_running = 0;
-	}
 
 	/* server used for delivering metrics produced inside the relay,
 	 * that is, the collector (statistics) */
@@ -1024,7 +1024,7 @@ main(int argc, char * const argv[])
 	/* make sure we don't write to our servers any more */
 	logout("stopped worker");
 	dispatchs_stop();
-	for (id = 0; id < 1 + dispatch_workercnt(); id++) {
+	for (id = 0; id < dispatch_workercnt(); id++) {
 		dispatch_shutdown_id(id);
 		fprintf(relay_stdout, " %d", id + 1);
 		fflush(relay_stdout);
@@ -1032,6 +1032,9 @@ main(int argc, char * const argv[])
 	fprintf(relay_stdout, "\n");
 	fflush(relay_stdout);
 	dispatchs_free();
+
+	/* reduce noisy server s shutdown */
+	usleep(100000);
 
 	router_shutdown(rtr);
 	router_free(rtr);

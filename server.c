@@ -663,12 +663,18 @@ server_queuereader(void *d)
 
 			if (self->ctype == CON_PIPE) {
 				int intconn[2];
+				int c;
 				if (pipe(intconn) < 0) {
 					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
 						logerr("failed to create pipe: %s\n", strerror(errno));
 					continue;
 				}
-				dispatch_addconnection(intconn[0], NULL);
+				c = dispatch_addconnection(intconn[0], NULL, dispatch_listener_worker());
+				if (c == -1) {
+					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+						logerr("failed to add pipe: %s\n", strerror(errno));
+					continue;
+				}
 				self->fd = intconn[1];
 			} else if (self->ctype == CON_FILE) {
 				if ((self->fd = open(self->ip,

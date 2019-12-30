@@ -15,6 +15,8 @@
  */
 
 
+#include <stdarg.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -29,7 +31,11 @@
 #include <sys/resource.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
+#include <ev.h>
+
+#include "queue.h"
 #include "relay.h"
 #include "router.h"
 #include "server.h"
@@ -98,7 +104,7 @@ typedef struct _z_strm {
 #define CONNGROWSZ  1024
 #define MAX_LISTENERS 32  /* hopefully enough */
 #define POLL_TIMEOUT  100
-#define IDLE_DISCONNECT_TIME  (10 * 60 * 1000 * 1000)  /* 10 minutes */
+#define IDLE_DISCONNECT_TIME  (10 * 60.0)  /* 10 minutes */
 
 /* connection takenby */
 #define C_SETUP -2 /* being setup */
@@ -106,26 +112,16 @@ typedef struct _z_strm {
 #define C_IN  0    /* not taken */
 /* > 0	taken by worker with id */
 
-typedef struct _connection {
-	int sock;
-	z_strm *strm;
-	char takenby;
-	char srcaddr[24];  /* string representation of source address */
-	char buf[METRIC_BUFSIZ];
-	int buflen;
-	char needmore:1;
-	char noexpire:1;
-	char metric[METRIC_BUFSIZ];
-	destination dests[CONN_DESTS_SIZE];
-	size_t destlen;
-	struct timeval lastwork;
-	unsigned int maxsenddelay;
-	char hadwork:1;
-	char isaggr:1;
-	char isudp:1;
-} connection;
+typedef struct _ev_cmd {
+	int what;
+	void *arg;
+	int *done;
+} ev_cmd;
 
 struct _dispatcher {
+	struct ev_async notify_ev;
+	struct ev_loop *evbase;
+	queue *cmd_queue;
 	pthread_t tid;
 	enum conntype type;
 	char id;
@@ -139,6 +135,7 @@ struct _dispatcher {
 	size_t prevdiscards;
 	size_t prevticks;
 	size_t prevsleeps;
+	char running;
 	char keep_running;  /* full byte for atomic access */
 	router *rtr;
 	router *pending_rtr;
@@ -150,15 +147,56 @@ struct _dispatcher {
 	int maxmetriclen;
 };
 
+typedef struct _listensock {
+	struct ev_io ev;
+	int sock;
+	listener *lsnr;
+	short needclose;
+} listensock;
+
+struct _connection {
+	struct ev_io ev;
+	ev_timer ev_timeout;
+	int sock;
+	z_strm *strm;
+	char takenby;
+	char srcaddr[24];  /* string representation of source address */
+	char buf[METRIC_BUFSIZ];
+	int buflen;
+	char needmore:1;
+	char noexpire:1;
+	char metric[METRIC_BUFSIZ];
+	destination dests[CONN_DESTS_SIZE];
+	size_t destlen;
+	struct timeval lastwork;
+	unsigned int maxsenddelay;
+	char isaggr:1;
+	char isudp:1;
+};
+
+#define EV_CMD_SHUTDOWN     0
+#define EV_CMD_RELOAD       1
+#define EV_CMD_LADD         2
+#define EV_CMD_LREMOVE      3
+#define EV_CMD_LTRANSPLANT  4
+#define EV_CMD_READ         5
+
+typedef struct _transplantlistener {
+	listener *olsnr;
+	listener *nlsnr;
+	router *r;
+} transplantlistener;
+
 static dispatcher **workers = NULL;
-static char workercnt = 0;
+static unsigned char workercnt = 0;
 static listener **listeners = NULL;
-static connection *connections = NULL;
+static connection **connections = NULL;
 static size_t connectionslen = 0;
 pthread_rwlock_t listenerslock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_rwlock_t connectionslock = PTHREAD_RWLOCK_INITIALIZER;
 static size_t acceptedconnections = 0;
 static size_t closedconnections = 0;
+static size_t errorsconnections = 0;
 static unsigned int sockbufsize = 0;
 
 /* connection specific readers and closers */
@@ -508,6 +546,287 @@ sslclose(z_strm *strm)
 }
 #endif
 
+static inline int waitfor_done(int *done)
+{
+	int i;
+	if (done == NULL)
+		return 0;
+	usleep(10);
+	for (i = 0; i < 100; i++)
+	{
+		if (__sync_bool_compare_and_swap(done, 1, 1))
+			return 0;
+		usleep(100);
+	}
+	return -1;
+}
+
+static void dispatch_closeconnection(connection *conn, dispatcher *self, ssize_t len);
+static int dispatch_connection(connection *conn, dispatcher *self, struct timeval start);
+
+static inline void set_done(int *done)
+{
+	if (done)
+		__sync_bool_compare_and_swap(done, 0, 1);
+}
+
+static int dispatch_notify(dispatcher *d, ev_cmd *cmd, int *done) {
+	cmd->done = done;
+	if (done)
+		*done = 0;
+	if (queue_putback(d->cmd_queue, (char *) cmd) == 0) {
+		return -1;
+	}
+	if (d->running) {
+		ev_async_send(d->evbase, &d->notify_ev);
+		return waitfor_done(done);
+	} else {
+		return 0;
+	}
+}
+
+/*
+ * Write shutdown command to command socket
+ **/
+static int
+dispatch_notify_shutdown(dispatcher *d, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_SHUTDOWN;
+	return dispatch_notify(d, cmd, done);
+}
+
+static int
+dispatch_notify_reload(dispatcher *d, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_RELOAD;
+	return dispatch_notify(d, cmd, done);
+}
+
+/*
+ * Write accept command to command socket
+ **/
+/*
+static int
+dispatcher_notify_accept(dispatcher *d, int fd, listener *lsnr)
+{
+	ev_cmd cmd;
+	cmd.what = EV_CMD_ACCEPT;
+	cmd.fd = fd;
+	cmd.arg = lsnr;
+	if (write(d->notify_fd[0], &cmd, sizeof(cmd)) == sizeof(cmd))
+		return -1;
+	else
+		return 0;
+}
+*/
+
+/*
+ * Write close listen socket command to command socket
+ **/
+/*
+static int
+dispatch_notify_close(dispatcher *d, listensock *lsock)
+{
+	ev_cmd cmd;
+	cmd.what = EV_CMD_READ;
+	cmd.fd = lsock->sock;
+	cmd.arg = lsock;
+	if (write(d->notify_fd[0], &cmd, sizeof(cmd)) == sizeof(cmd))
+		return -1;
+	else
+		return 0;
+}
+*/
+
+/*
+ * Write accept command to command socket
+ **/
+static int
+dispatch_notify_read(dispatcher *d, connection *conn, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_READ;
+	cmd->arg = conn;
+	return dispatch_notify(d, cmd, done);
+}
+
+static int __dispatch_addlistener(struct ev_loop *loop, listener *lsnr);
+
+static int
+dispatch_notify_addlistener(dispatcher *d, listener *lsnr, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_LADD;
+	cmd->arg = lsnr;
+	return dispatch_notify(d, cmd, done);
+}
+
+static int __dispatch_removelistener(struct ev_loop *loop, listener *lsnr);
+
+static int
+dispatch_notify_removelistener(dispatcher *d, listener *lsnr, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_LREMOVE;
+	cmd->arg = lsnr;
+	return dispatch_notify(d, cmd, done);
+}
+
+static int __dispatch_transplantlistener(struct ev_loop *loop, listener *olsnr, listener *nlsnr, router *r);
+
+static int
+dispatch_notify_transplantlistener(dispatcher *d, transplantlistener *tr, int *done)
+{
+	ev_cmd *cmd = malloc(sizeof(ev_cmd));
+	if (cmd == NULL)
+		return -1;
+	cmd->what = EV_CMD_LTRANSPLANT;
+	cmd->arg = tr;
+	return dispatch_notify(d, cmd, done);
+}
+
+void dispatch_read_cb(struct ev_loop *loop, ev_io *io, int revents)
+{
+	connection *conn = (connection *) io;
+	dispatcher *d  = (dispatcher *) ev_userdata(loop);
+	struct timeval start, stop;
+
+	gettimeofday(&start, NULL);
+	if (!__sync_bool_compare_and_swap(&(conn->takenby), C_IN, d->id))
+			return;
+	if (__sync_bool_compare_and_swap(&(d->hold), 1, 1) && !conn->isaggr)
+	{
+		__sync_bool_compare_and_swap(
+				&(conn->takenby), d->id, C_IN);
+		return;
+	}
+	ev_timer_stop (loop, &conn->ev_timeout);
+	if (dispatch_connection(conn, d, start) == 0) {
+		logout("disconnect socket %d\n", conn->sock);
+		ev_timer_stop(loop, &conn->ev_timeout);
+		ev_io_stop(loop, io);
+	}
+	if (!conn->noexpire) {
+		ev_timer_set (&conn->ev_timeout, IDLE_DISCONNECT_TIME, 0.);
+		ev_timer_start (loop, &conn->ev_timeout);
+	}
+
+	gettimeofday(&stop, NULL);
+	__sync_add_and_fetch(&(d->ticks), timediff(start, stop));
+}
+
+void dispatch_timeout_cb(struct ev_loop *loop, ev_timer *timer, int revents)
+{
+	connection *conn = (connection *) ((char *) timer - offsetof(connection, ev_timeout));
+	dispatcher *d  = (dispatcher *) ev_userdata(loop);
+
+	struct timeval start, stop;
+
+	gettimeofday(&start, NULL);
+	if (!__sync_bool_compare_and_swap(&(conn->takenby), d->id, d->id))
+			return;
+	ev_io_stop(loop, &conn->ev);
+	ev_timer_stop(loop, &conn->ev_timeout);
+	dispatch_closeconnection(conn, d, 0);
+
+	gettimeofday(&stop, NULL);
+	__sync_add_and_fetch(&(d->ticks), timediff(start, stop));
+}
+
+void dispatch_accept_cb(struct ev_loop *loop, ev_io *io, int revents)
+{
+	ev_io_sock *lsock = (ev_io_sock *) io;
+    int client;
+	struct sockaddr addr;
+	socklen_t addrlen = sizeof(addr);
+
+	if ((client = accept(lsock->sock, &addr, &addrlen)) < 0)
+	{
+		logerr("dispatch: failed to "
+				"accept() new connection on socket %d: %s\n",
+				lsock->sock, strerror(errno));
+		dispatch_check_rlimit_and_warn();
+		__sync_add_and_fetch(&errorsconnections, 1);
+		return;
+	}
+
+	(void) fcntl(client, F_SETFL, O_NONBLOCK);
+	dispatch_addconnection(client, lsock->lsnr, dispatch_worker_with_low_connections());
+}
+
+/**
+ * Read command from socket callback
+ */
+static void
+dispatch_cmd_cb(struct ev_loop *loop, ev_async *io, int revents)
+{
+	dispatcher *d  = (dispatcher *) ev_userdata(loop);
+	ev_cmd *cmd = (ev_cmd *) queue_dequeue(d->cmd_queue);
+	if (cmd) {
+		/* logout("dispatch %d: set %d\n", d->id, cmd->what); */
+		switch (cmd->what) {
+			case EV_CMD_SHUTDOWN:
+				/* logout("shutdown\n"); */
+				ev_break(loop, EVBREAK_ONE);
+				break;
+			case EV_CMD_RELOAD:
+				{
+					if (__sync_bool_compare_and_swap(&(d->route_refresh_pending), 1, 1)) {
+						d->rtr = d->pending_rtr;
+						d->pending_rtr = NULL;
+						__sync_bool_compare_and_swap(&(d->route_refresh_pending), 1, 0);
+						__sync_and_and_fetch(&(d->hold), 0);
+					}
+				}
+				break;
+			case EV_CMD_LADD:
+				{
+					listener *lsnr = (listener *) cmd->arg;
+					__dispatch_addlistener(loop, lsnr);
+				}
+				break;
+			case EV_CMD_LREMOVE:
+				{
+					listener *lsnr = (listener *) cmd->arg;
+					__dispatch_removelistener(loop, lsnr);
+				}
+				break;
+			case EV_CMD_LTRANSPLANT:
+				{
+					transplantlistener *tr = (transplantlistener *) cmd->arg;
+					__dispatch_transplantlistener(loop, tr->olsnr, tr->nlsnr, tr->r);
+				}
+				break;
+			case EV_CMD_READ:
+				{
+					connection *conn = (connection *) cmd->arg;
+					ev_io_init(&conn->ev, dispatch_read_cb, conn->sock, EV_READ);
+					ev_io_start(loop, &conn->ev);
+					if (!conn->noexpire) {
+						ev_timer_init (&conn->ev_timeout, dispatch_timeout_cb, IDLE_DISCONNECT_TIME, 0.);
+						ev_timer_start (loop, &conn->ev_timeout);
+					}
+				}
+				break;
+			default:
+				logerr("dispatcher %d: unknown cmd %d\n", d->id, cmd->what);
+		}
+		set_done(cmd->done);
+	}
+}
+
 /**
  * Helper function to try and be helpful to the user.  If errno
  * indicates no new fds could be made, checks what the current max open
@@ -531,30 +850,22 @@ dispatch_check_rlimit_and_warn(void)
 	}
 }
 
-/**
- * Allocate workers. On errors return -1
- */
-char
-dispatch_workers_alloc(char count)
-{
-	workers = malloc(sizeof(dispatcher *) *
-			(1/*lsnr*/ + count + 1/*sentinel*/));
-	if (workers == NULL)
-		workercnt = -1;
-	else {
-		int id;
-		for (id = 0; id < count + 2; id++) {
-			workers[id] = NULL;
-		}
-		workercnt = count;
-	}
-	return workercnt;
-}
-
 dispatcher **
 dispatch_workers(void)
 {
 	return &workers[1];
+}
+
+dispatcher *
+dispatch_listener_worker(void)
+{
+	return workers[0];
+}
+
+dispatcher *
+dispatch_worker_with_low_connections(void)
+{
+	return workers[0];
 }
 
 /*
@@ -566,31 +877,56 @@ dispatch_workercnt(void)
 	return workercnt;
 }
 
-#define MAX_LISTENERS 32  /* hopefully enough */
+int
+dispatch_connection_to_worker(dispatcher *d, connection *conn,  int *done)
+{
+	return dispatch_notify_read(d, conn, done);
+}
+
+connection *
+dispatch_get_connection(int c)
+{
+	return connections[c];
+}
+
+int
+dispatch_addlistener(listener *lsnr)
+{
+	int done = 0;
+	int res = dispatch_notify_addlistener(workers[0], lsnr, &done);
+	if (res != 0) {
+		logerr("dispatch: failed to notify addlistener\n");
+		return 1;
+	}
+	return waitfor_done(&done);
+}
 
 /**
  * Adds an (initial) listener socket to the chain of connections.
  * Listener sockets are those which need to be accept()-ed on.
  */
-int
-dispatch_addlistener(listener *lsnr)
+static int
+__dispatch_addlistener(struct ev_loop *loop, listener *lsnr)
 {
 	int c;
-	int *socks;
+	ev_io_sock *socks;
+	dispatcher *d = dispatch_listener_worker();
 
 	if (lsnr->ctype == CON_UDP) {
 		/* Adds a pseudo-listener for datagram (UDP) sockets, which is
 		 * pseudo, for in fact it adds a new connection, but makes sure
 		 * that connection won't be closed after being idle, and won't
 		 * count that connection as an incoming connection either. */
-		for (socks = lsnr->socks; *socks != -1; socks++) {
-			c = dispatch_addconnection(*socks, lsnr);
+		for (socks = lsnr->socks; socks->sock != -1; socks++) {
+			c = dispatch_addconnection(socks->sock, lsnr, d);
 
 			if (c == -1)
 				return 1;
 
-			connections[c].noexpire = 1;
-			connections[c].isudp = 1;
+			connections[c]->noexpire = 1;
+			if (lsnr->ctype == CON_UDP) {
+				connections[c]->isudp = 1;
+			}
 			acceptedconnections--;
 		}
 
@@ -601,8 +937,12 @@ dispatch_addlistener(listener *lsnr)
 	for (c = 0; c < MAX_LISTENERS; c++) {
 		if (listeners[c] == NULL) {
 			listeners[c] = lsnr;
-			for (socks = lsnr->socks; *socks != -1; socks++)
-				(void) fcntl(*socks, F_SETFL, O_NONBLOCK);
+			for (socks = lsnr->socks; socks->sock != -1; socks++) {
+				(void) fcntl(socks->sock, F_SETFL, O_NONBLOCK);
+				socks->lsnr = lsnr;
+				ev_io_init(&socks->ev, dispatch_accept_cb, socks->sock, EV_READ);
+				ev_io_start(loop, &socks->ev);
+  			}
 			break;
 		}
 	}
@@ -618,15 +958,27 @@ dispatch_addlistener(listener *lsnr)
 	return 0;
 }
 
+int
+dispatch_removelistener(listener *lsnr)
+{
+	int done = 0;
+	int res = dispatch_notify_removelistener(workers[0], lsnr, &done);
+	if (res != 0) {
+		logerr("dispatch: failed to notify removelistener\n");
+		return 1;
+	}
+	return waitfor_done(&done);
+}
+
 /**
  * Remove listener from the listeners list.  Each removal will incur a
  * global lock.  Frequent usage of this function is not anticipated.
  */
-void
-dispatch_removelistener(listener *lsnr)
+static int
+__dispatch_removelistener(struct ev_loop *loop, listener *lsnr)
 {
 	int c;
-	int *socks;
+	ev_io_sock *socks;
 
 	if (lsnr->ctype != CON_UDP) {
 		pthread_rwlock_wrlock(&listenerslock);
@@ -636,9 +988,9 @@ dispatch_removelistener(listener *lsnr)
 				break;
 		if (c == MAX_LISTENERS) {
 			/* not found?!? */
-			logerr("dispatch: cannot find listener to remove!\n");
+			/* logerr("dispatch: cannot find listener to remove!\n"); */
 			pthread_rwlock_unlock(&listenerslock);
-			return;
+			return 0;
 		}
 		listeners[c] = NULL;
 		pthread_rwlock_unlock(&listenerslock);
@@ -648,20 +1000,34 @@ dispatch_removelistener(listener *lsnr)
 	if ((lsnr->transport & ~0xFFFF) == W_SSL)
 		SSL_CTX_free(lsnr->ctx);
 #endif
-	/* acquire a write lock on connections, which is a bit wrong, but it
-	 * ensures all dispatchers are stopped while we close the sockets,
-	 * which avoids a race on the reading thereof if this is a UDP
-	 * connection */
-	pthread_rwlock_wrlock(&connectionslock);
-	for (socks = lsnr->socks; *socks != -1; socks++) {
-		close(*socks);
-		*socks = -1;
+	for (socks = lsnr->socks; socks->sock != -1; socks++) {
+		ev_io_stop(loop, &socks->ev);
+		close(socks->sock);
+		logout("listener: close socket %d\n", socks->sock);
+		socks->sock = -1;
 	}
-	pthread_rwlock_unlock(&connectionslock);
 	if (lsnr->saddrs) {
 		freeaddrinfo(lsnr->saddrs);
 		lsnr->saddrs = NULL;
 	}
+	return 0;
+}
+
+int
+dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
+{
+	int done = 0;
+	transplantlistener tr;
+	tr.olsnr = olsnr;
+	tr.nlsnr = nlsnr;
+	tr.r = r;
+	int res = dispatch_notify_transplantlistener(workers[0], &tr, &done);
+	if (res != 0) {
+		logerr("dispatch: failed to notify transplantlistener (%d)\n", errno);
+		return 1;
+	}
+	return waitfor_done(&done);
+
 }
 
 /**
@@ -669,8 +1035,8 @@ dispatch_removelistener(listener *lsnr)
  * olsnr can be discarded (that is, thrown away without calling
  * dispatch_removelistener).
  */
-void
-dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
+static int
+__dispatch_transplantlistener(struct ev_loop *loop, listener *olsnr, listener *nlsnr, router *r)
 {
 	int c;
 
@@ -691,6 +1057,7 @@ dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
 		}
 	}
 	pthread_rwlock_unlock(&listenerslock);
+	return 0;
 }
 
 #define CONNGROWSZ  1024
@@ -701,7 +1068,7 @@ dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
  * Returns the connection id, or -1 if a failure occurred.
  */
 int
-dispatch_addconnection(int sock, listener *lsnr)
+dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 {
 	size_t c;
 	struct sockaddr_in6 saddr;
@@ -712,22 +1079,27 @@ dispatch_addconnection(int sock, listener *lsnr)
 #endif
 
 	pthread_rwlock_rdlock(&connectionslock);
-	for (c = 0; c < connectionslen; c++)
-		if (__sync_bool_compare_and_swap(&(connections[c].takenby), C_FREE, C_SETUP))
+	for (c = 0; c < connectionslen; c++) {
+		if (connections[c] == NULL) {
+			connections[c] = malloc(sizeof(connection));
+			connections[c]->takenby = C_SETUP;
 			break;
+		} else if (__sync_bool_compare_and_swap(&(connections[c]->takenby), C_FREE, C_SETUP))
+			break;
+	}
 	pthread_rwlock_unlock(&connectionslock);
 
 	if (c == connectionslen) {
-		connection *newlst;
+		connection **newlst;
 
 		pthread_rwlock_wrlock(&connectionslock);
 		if (connectionslen > c) {
 			/* another dispatcher just extended the list */
 			pthread_rwlock_unlock(&connectionslock);
-			return dispatch_addconnection(sock, lsnr);
+			return dispatch_addconnection(sock, lsnr, d);
 		}
 		newlst = realloc(connections,
-				sizeof(connection) * (connectionslen + CONNGROWSZ));
+				sizeof(connection *) * (connectionslen + CONNGROWSZ));
 		if (newlst == NULL) {
 			logerr("cannot add new connection: "
 					"out of memory allocating more slots (max = %zu)\n",
@@ -735,23 +1107,15 @@ dispatch_addconnection(int sock, listener *lsnr)
 
 			pthread_rwlock_unlock(&connectionslock);
 			return -1;
-		} else if (newlst != connections) {
-		    /* reset srcaddr after realloc due to issue 346 */
-		    for (c = 0; c < connectionslen; c++) {
-			if (newlst[c].isudp) {
-			    newlst[c].strm->hdl.udp.srcaddr = newlst[c].srcaddr;
-			    newlst[c].strm->hdl.udp.srcaddrlen = sizeof(newlst[c].srcaddr);
-			}
-		    }
 		}
 
 		for (c = connectionslen; c < connectionslen + CONNGROWSZ; c++) {
-			memset(&newlst[c], '\0', sizeof(connection));
-			newlst[c].takenby = C_FREE;  /* free */
+			newlst[c] = NULL;
 		}
 		connections = newlst;
 		c = connectionslen;  /* for the setup code below */
-		newlst[c].takenby = C_SETUP;
+		connections[c] = malloc(sizeof(connection));
+		connections[c]->takenby = C_SETUP;
 		connectionslen += CONNGROWSZ;
 
 		pthread_rwlock_unlock(&connectionslock);
@@ -759,17 +1123,17 @@ dispatch_addconnection(int sock, listener *lsnr)
 
 	/* figure out who's calling */
 	if (getpeername(sock, (struct sockaddr *)&saddr, &saddr_len) == 0) {
-		snprintf(connections[c].srcaddr, sizeof(connections[c].srcaddr),
+		snprintf(connections[c]->srcaddr, sizeof(connections[c]->srcaddr),
 				"(unknown)");
 		switch (saddr.sin6_family) {
 			case PF_INET:
 				inet_ntop(saddr.sin6_family,
 						&((struct sockaddr_in *)&saddr)->sin_addr,
-						connections[c].srcaddr, sizeof(connections[c].srcaddr));
+						connections[c]->srcaddr, sizeof(connections[c]->srcaddr));
 				break;
 			case PF_INET6:
 				inet_ntop(saddr.sin6_family, &saddr.sin6_addr,
-						connections[c].srcaddr, sizeof(connections[c].srcaddr));
+						connections[c]->srcaddr, sizeof(connections[c]->srcaddr));
 				break;
 		}
 	}
@@ -780,46 +1144,46 @@ dispatch_addconnection(int sock, listener *lsnr)
 				&sockbufsize, sizeof(sockbufsize)) != 0)
 			;
 	}
-	connections[c].sock = sock;
-	connections[c].strm = malloc(sizeof(z_strm));
-	if (connections[c].strm == NULL) {
+	connections[c]->sock = sock;
+	connections[c]->strm = malloc(sizeof(z_strm));
+	if (connections[c]->strm == NULL) {
 		logerr("cannot add new connection: "
 				"out of memory allocating stream\n");
-		__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+		__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 		return -1;
 	}
 
 	/* set socket or SSL connection */
-	connections[c].strm->nextstrm = NULL;
-	connections[c].strm->strmreadbuf = NULL;
+	connections[c]->strm->nextstrm = NULL;
+	connections[c]->strm->strmreadbuf = NULL;
 	if (lsnr == NULL || (lsnr->transport & ~0xFFFF) != W_SSL) {
 		if (lsnr == NULL || lsnr->ctype != CON_UDP) {
-			connections[c].strm->hdl.sock = sock;
-			connections[c].strm->strmread = &sockread;
-			connections[c].strm->strmclose = &sockclose;
+			connections[c]->strm->hdl.sock = sock;
+			connections[c]->strm->strmread = &sockread;
+			connections[c]->strm->strmclose = &sockclose;
 		} else {
-			connections[c].strm->hdl.udp.sock = sock;
-			connections[c].strm->hdl.udp.srcaddr =
-				connections[c].srcaddr;
-			connections[c].strm->hdl.udp.srcaddrlen =
-				sizeof(connections[c].srcaddr);
-			connections[c].strm->strmread = &udpsockread;
-			connections[c].strm->strmclose = &udpsockclose;
+			connections[c]->strm->hdl.udp.sock = sock;
+			connections[c]->strm->hdl.udp.srcaddr =
+				connections[c]->srcaddr;
+			connections[c]->strm->hdl.udp.srcaddrlen =
+				sizeof(connections[c]->srcaddr);
+			connections[c]->strm->strmread = &udpsockread;
+			connections[c]->strm->strmclose = &udpsockclose;
 		}
 #ifdef HAVE_SSL
 	} else {
-		if ((connections[c].strm->hdl.ssl = SSL_new(lsnr->ctx)) == NULL) {
+		if ((connections[c]->strm->hdl.ssl = SSL_new(lsnr->ctx)) == NULL) {
 			logerr("cannot add new connection: %s\n",
 					ERR_reason_error_string(ERR_get_error()));
-			free(connections[c].strm);
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			free(connections[c]->strm);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			return -1;
 		};
-		SSL_set_fd(connections[c].strm->hdl.ssl, sock);
-		SSL_set_accept_state(connections[c].strm->hdl.ssl);
+		SSL_set_fd(connections[c]->strm->hdl.ssl, sock);
+		SSL_set_accept_state(connections[c]->strm->hdl.ssl);
 
-		connections[c].strm->strmread = &sslread;
-		connections[c].strm->strmclose = &sslclose;
+		connections[c]->strm->strmread = &sslread;
+		connections[c]->strm->strmclose = &sslclose;
 #endif
 	}
 
@@ -835,8 +1199,8 @@ dispatch_addconnection(int sock, listener *lsnr)
 		if (ibuf == NULL) {
 			logerr("cannot add new connection: "
 					"out of memory allocating stream ibuf\n");
-			free(connections[c].strm);
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			free(connections[c]->strm);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			return -1;
 		}
 	} else
@@ -855,8 +1219,8 @@ dispatch_addconnection(int sock, listener *lsnr)
 			logerr("cannot add new connection: "
 					"out of memory allocating gzip stream\n");
 			free(ibuf);
-			free(connections[c].strm);
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			free(connections[c]->strm);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			return -1;
 		}
 		zstrm->hdl.gz.z.zalloc = Z_NULL;
@@ -874,8 +1238,8 @@ dispatch_addconnection(int sock, listener *lsnr)
 		zstrm->strmread = &gzipread;
 		zstrm->strmreadbuf = &gzipreadbuf;
 		zstrm->strmclose = &gzipclose;
-		zstrm->nextstrm = connections[c].strm;
-		connections[c].strm = zstrm;
+		zstrm->nextstrm = connections[c]->strm;
+		connections[c]->strm = zstrm;
 	}
 #endif
 #ifdef HAVE_LZ4
@@ -885,14 +1249,14 @@ dispatch_addconnection(int sock, listener *lsnr)
 			logerr("cannot add new connection: "
 					"out of memory allocating lz4 stream\n");
 			free(ibuf);
-			free(connections[c].strm);
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			free(connections[c]->strm);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			return -1;
 		}
 		if (LZ4F_isError(LZ4F_createDecompressionContext(&lzstrm->hdl.lz4.lz, LZ4F_VERSION))) {
 			logerr("Failed to create LZ4 decompression context\n");
 			free(ibuf);
-			free(connections[c].strm);
+			free(connections[c]->strm);
 			return -1;
 		}
 		lzstrm->ibuf = ibuf;
@@ -903,8 +1267,8 @@ dispatch_addconnection(int sock, listener *lsnr)
 		lzstrm->strmread = &lzread;
 		lzstrm->strmreadbuf = &lzreadbuf;
 		lzstrm->strmclose = &lzclose;
-		lzstrm->nextstrm = connections[c].strm;
-		connections[c].strm = lzstrm;
+		lzstrm->nextstrm = connections[c]->strm;
+		connections[c]->strm = lzstrm;
 	}
 #endif
 #ifdef HAVE_SNAPPY
@@ -913,10 +1277,10 @@ dispatch_addconnection(int sock, listener *lsnr)
 		if (lzstrm == NULL) {
 			logerr("cannot add new connection: "
 					"out of memory allocating snappy stream\n");
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			free(ibuf);
-			free(connections[c].strm);
-			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
+			free(connections[c]->strm);
+			__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_FREE);
 			return -1;
 		}
 
@@ -927,21 +1291,29 @@ dispatch_addconnection(int sock, listener *lsnr)
 		lzstrm->strmread = &snappyread;
 		lzstrm->strmreadbuf = &snappyreadbuf;
 		lzstrm->strmclose = &snappyclose;
-		lzstrm->nextstrm = connections[c].strm;
-		connections[c].strm = lzstrm;
+		lzstrm->nextstrm = connections[c]->strm;
+		connections[c]->strm = lzstrm;
 	}
 #endif
 
-	connections[c].buflen = 0;
-	connections[c].needmore = 0;
-	connections[c].noexpire = noexpire;
-	connections[c].isaggr = 0;
-	connections[c].isudp = 0;
-	connections[c].destlen = 0;
-	gettimeofday(&connections[c].lastwork, NULL);
-	connections[c].hadwork = 1;  /* force first iteration before stalling */
+	connections[c]->buflen = 0;
+	connections[c]->needmore = 0;
+	connections[c]->noexpire = noexpire;
+	connections[c]->isaggr = 0;
+	connections[c]->isudp = 0;
+	connections[c]->destlen = 0;
+	gettimeofday(&connections[c]->lastwork, NULL);
 	/* after this dispatchers will pick this connection up */
-	__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_IN);
+	__sync_bool_compare_and_swap(&(connections[c]->takenby), C_SETUP, C_IN);
+	if (dispatch_connection_to_worker(d, connections[c], NULL) == -1) {
+		connections[c]->strm->strmclose(connections[c]->strm);
+		__sync_bool_compare_and_swap(&(connections[c]->takenby), C_IN, C_SETUP);
+		__sync_add_and_fetch(&errorsconnections, 1);
+		logerr("dispatch %d: failed to "
+				"pass new connection on socket %d\n",
+				d->id, sock);
+		return -1;
+	}
 	__sync_add_and_fetch(&acceptedconnections, 1);
 
 	return c;
@@ -956,13 +1328,13 @@ dispatch_addconnection(int sock, listener *lsnr)
 int
 dispatch_addconnection_aggr(int sock)
 {
-	int conn = dispatch_addconnection(sock, NULL);
+	int c = dispatch_addconnection(sock, NULL, dispatch_listener_worker());
 
-	if (conn == -1)
+	if (c == -1)
 		return 1;
 
-	connections[conn].noexpire = 1;
-	connections[conn].isaggr = 1;
+	connections[c]->noexpire = 1;
+	connections[c]->isaggr = 1;
 	acceptedconnections--;
 
 	return 0;
@@ -997,7 +1369,6 @@ dispatch_process_dests(connection *conn, dispatcher *self, struct timeval now)
 			/* finally "complete" this metric */
 			conn->destlen = 0;
 			conn->lastwork = now;
-			conn->hadwork = 1;
 		}
 	}
 
@@ -1035,6 +1406,8 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 					q - conn->metric > self->maxinplen - 1 ||
 					firstspace - conn->metric > self->maxmetriclen)
 			{
+				tracef("dispatcher %d, connfd %d, discard metric %s",
+						self->id, conn->sock, conn->metric);
 				__sync_add_and_fetch(&(self->discards), 1);
 				q = conn->metric;
 				firstspace = NULL;
@@ -1065,7 +1438,6 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 			firstspace = NULL;
 			search_tags = self->tags_supported;
 
-			conn->hadwork = 1;
 			gettimeofday(&conn->lastwork, NULL);
 			conn->maxsenddelay = 0;
 			/* send the metric to where it is supposed to go */
@@ -1133,8 +1505,20 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 	}
 }
 
+static void
+dispatch_closeconnection(connection *conn, dispatcher *self, ssize_t len)
+{
+	tracef("dispatcher: %d, connfd: %d, len: %zd [%s], disconnecting\n",
+		self->id, conn->sock, len,
+		len < 0 ? strerror(errno) : "");
+	__sync_add_and_fetch(&closedconnections, 1);
+	conn->strm->strmclose(conn->strm);
 
-#define IDLE_DISCONNECT_TIME  (10 * 60 * 1000 * 1000)  /* 10 minutes */
+		/* flag this connection as no longer in use, unless there is
+		 * pending metrics to send */
+	__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_FREE);
+}
+
 /**
  * Look at conn and see if works needs to be done.  If so, do it.  This
  * function operates on an (exclusive) lock on the connection it serves.
@@ -1154,6 +1538,9 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
  *          v*                 | * this is optional, but if a server's
  *   retry send (<1s)  --------    queue is full, the client is stalled
  *      block reads
+ *  return 1 - success,
+ *         0 - connection close (due remote shutdown or fatal error)
+ *        -1 - can retry
  */
 static int
 dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
@@ -1161,19 +1548,12 @@ dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
 	ssize_t len;
 	int err;
 
+	/* TODO: timeout */
 	/* first try to resume any work being blocked */
 	if (dispatch_process_dests(conn, self, start) == 0) {
 		__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_IN);
 		return 0;
 	}
-
-	/* don't poll (read) when the last time we ran nothing happened,
-	 * this is to avoid excessive CPU usage, issue #126 */
-	if (!conn->hadwork && timediff(conn->lastwork, start) < 100 * 1000) {
-		__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_IN);
-		return 0;
-	}
-	conn->hadwork = 0;
 
 	len = -2;
 	/* try to read more data, if that succeeds, or we still have data
@@ -1221,15 +1601,8 @@ dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
 		/* nothing available/no work done */
 		struct timeval stop;
 		gettimeofday(&stop, NULL);
-		if (!conn->noexpire &&
-				timediff(conn->lastwork, stop) > IDLE_DISCONNECT_TIME)
-		{
-			/* force close connection below */
-			len = 0;
-		} else {
-			__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_IN);
-			return 0;
-		}
+		__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_IN);
+		return -1;
 	}
 	if (len == -1 || len == 0 || conn->isudp) {  /* error + EOF */
 		/* we also disconnect the client in this case if our reading
@@ -1243,18 +1616,9 @@ dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
 			conn->buflen = 0;
 			__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_IN);
 
-			return len > 0;
+			return -1;
 		} else if (conn->destlen == 0) {
-			tracef("dispatcher: %d, connfd: %d, len: %zd [%s], disconnecting\n",
-					self->id, conn->sock, len,
-					len < 0 ? strerror(errno) : "");
-			__sync_add_and_fetch(&closedconnections, 1);
-			conn->strm->strmclose(conn->strm);
-
-			/* flag this connection as no longer in use, unless there is
-			 * pending metrics to send */
-			__sync_bool_compare_and_swap(&(conn->takenby), self->id, C_FREE);
-
+			dispatch_closeconnection(conn, self, len);
 			return 0;
 		}
 	}
@@ -1272,118 +1636,17 @@ dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
 static void *
 dispatch_runner(void *arg)
 {
-	dispatcher *self = (dispatcher *)arg;
-	connection *conn;
-	int c;
-
-	if (self->type == LISTENER) {
-		struct pollfd ufds[MAX_LISTENERS];
-		int fds;
-		int *sock;
-		while (__sync_bool_compare_and_swap(&(self->keep_running), 1, 1)) {
-			pthread_rwlock_rdlock(&listenerslock);
-			fds = 0;
-			for (c = 0; c < MAX_LISTENERS; c++) {
-				if (listeners[c] == NULL)
-					continue;
-				for (sock = listeners[c]->socks; *sock != -1; sock++) {
-					ufds[fds].fd = *sock;
-					ufds[fds].events = POLLIN;
-					fds++;
-				}
-			}
-			pthread_rwlock_unlock(&listenerslock);
-			if (poll(ufds, fds, 1000) > 0) {
-				int f;
-				for (f = fds - 1; f >= 0; f--) {
-					if (ufds[f].revents & POLLIN) {
-						int client;
-						struct sockaddr addr;
-						socklen_t addrlen = sizeof(addr);
-
-						if ((client = accept(ufds[f].fd, &addr, &addrlen)) < 0)
-						{
-							logerr("dispatch: failed to "
-									"accept() new connection: %s\n",
-									strerror(errno));
-							dispatch_check_rlimit_and_warn();
-							continue;
-						}
-						pthread_rwlock_rdlock(&listenerslock);
-						for (c = 0; c < MAX_LISTENERS; c++) {
-							if (listeners[c] == NULL)
-								continue;
-							for (sock = listeners[c]->socks; *sock != -1; sock++) {
-								if (ufds[f].fd == *sock)
-									break;
-							}
-							if (*sock != -1)
-								break;
-						}
-						pthread_rwlock_unlock(&listenerslock);
-						if (c == MAX_LISTENERS) {
-							logerr("dispatch: could not find listener for "
-									"socket, rejecting connection\n");
-							close(client);
-							continue;
-						}
-						if (dispatch_addconnection(client, listeners[c]) == -1) {
-							close(client);
-							continue;
-						}
-					}
-				}
-			}
-		}
-	} else if (self->type == CONNECTION) {
-		int work;
-		struct timeval start, stop;
-
-		while (__sync_bool_compare_and_swap(&(self->keep_running), 1, 1)) {
-			work = 0;
-
-			if (__sync_bool_compare_and_swap(&(self->route_refresh_pending), 1, 1)) {
-				self->rtr = self->pending_rtr;
-				self->pending_rtr = NULL;
-				__sync_bool_compare_and_swap(&(self->route_refresh_pending), 1, 0);
-				__sync_and_and_fetch(&(self->hold), 0);
-			}
-
-			gettimeofday(&start, NULL);
-			pthread_rwlock_rdlock(&connectionslock);
-			for (c = 0; c < connectionslen; c++) {
-				conn = &(connections[c]);
-				/* atomically try to "claim" this connection */
-				if (!__sync_bool_compare_and_swap(
-							&(conn->takenby), C_IN, self->id))
-					continue;
-				if (__sync_bool_compare_and_swap(
-							&(self->hold), 1, 1) && !conn->isaggr)
-				{
-					__sync_bool_compare_and_swap(
-							&(conn->takenby), self->id, C_IN);
-					continue;
-				}
-				work += dispatch_connection(conn, self, start);
-			}
-			pthread_rwlock_unlock(&connectionslock);
-			gettimeofday(&stop, NULL);
-			__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
-
-			/* nothing done, avoid spinlocking */
-			if (__sync_bool_compare_and_swap(&(self->keep_running), 1, 1) &&
-					work == 0)
-			{
-				gettimeofday(&start, NULL);
-				usleep((100 + (rand() % 200)) * 1000);  /* 100ms - 300ms */
-				gettimeofday(&stop, NULL);
-				__sync_add_and_fetch(&(self->sleeps), timediff(start, stop));
-			}
-		}
-	} else {
-		logerr("huh? unknown self type!\n");
+	dispatcher *d = (dispatcher *)arg;
+	size_t len = queue_len(d->cmd_queue);
+	size_t i;
+	for (i = 0; i < len; i++) {
+		dispatch_cmd_cb(d->evbase, &d->notify_ev, 0);
 	}
-
+	d->running = 1;
+	ev_run (d->evbase, 0);
+	d->running = 0;
+	ev_async_stop(d->evbase, &d->notify_ev);
+	ev_loop_destroy(d->evbase);
 	return NULL;
 }
 
@@ -1394,32 +1657,26 @@ dispatch_runner(void *arg)
 static dispatcher *
 dispatch_new(
 		unsigned char id,
-		enum conntype type,
-		router *r,
-		char *allowed_chars,
-		int maxinplen,
-		int maxmetriclen
+		enum conntype type
 	)
 {
 	dispatcher *ret = malloc(sizeof(dispatcher));
 
 	if (ret == NULL)
 		return NULL;
-	if (type == CONNECTION && r == NULL) {
+	ret->evbase =  ev_loop_new(EVFLAG_AUTO);
+	if (ret->evbase == NULL) {
 		free(ret);
 		return NULL;
 	}
-
-	ret->id = id + 1;  /* ensure > 0 */
 	ret->type = type;
+
+	ret->running = 0;
+	ret->id = id + 1;  /* ensure > 0 */
+	ret->cmd_queue = queue_new(100);
 	ret->keep_running = 1;
-	ret->rtr = r;
 	ret->route_refresh_pending = 0;
 	ret->hold = 0;
-	ret->allowed_chars = allowed_chars;
-	ret->tags_supported = 0;
-	ret->maxinplen = maxinplen;
-	ret->maxmetriclen = maxmetriclen;
 
 	ret->metrics = 0;
 	ret->blackholes = 0;
@@ -1431,17 +1688,73 @@ dispatch_new(
 	ret->prevticks = 0;
 	ret->prevsleeps = 0;
 
+	return ret;
+}
+
+/**
+ * Allocate workers. On errors return -1
+ */
+char
+dispatch_workers_alloc(char count)
+{
+	workers = malloc(sizeof(dispatcher *) *
+			(1/*lsnr*/ + count + 1/*sentinel*/));
+	if (workers == NULL)
+		workercnt = -1;
+	else {
+		unsigned char id;
+		workercnt = 0;
+		/* ensure the listener id is at the end for regex_t array hack */
+		if ((workers[0] = dispatch_new(0, LISTENER)) == NULL) {
+			logerr("failed to add listener dispatcher\n");
+			return -1;
+		}
+		for (id = 1; id <= count; id++) {
+			if ((workers[id] = dispatch_new(id, CONNECTION)) == NULL) {
+				logerr("failed to add connection dispatcher\n");
+				return -1;
+			}
+		}
+		workers[id + 1] = NULL; /* sentinel */
+		workercnt = id;
+	}
+	return workercnt;
+}
+
+static int
+dispatch_start(
+		unsigned char id,
+		router *r,
+		char *allowed_chars,
+		int maxinplen,
+		int maxmetriclen
+	)
+{
+	dispatcher *d = workers[id];
+	if (d->type == CONNECTION && r == NULL) {
+		return -1;
+	}
+	d->rtr = r;
+	d->allowed_chars = allowed_chars;
+	d->tags_supported = 0;
+	d->maxinplen = maxinplen;
+	d->maxmetriclen = maxmetriclen;
+
 	/* switch tag support on when the user didn't allow ';' as valid
 	 * character in metrics */
 	if (allowed_chars != NULL && strchr(allowed_chars, ';') == NULL)
-		ret->tags_supported = 1;
+		d->tags_supported = 1;
 
-	if (pthread_create(&ret->tid, NULL, dispatch_runner, ret) != 0) {
-		free(ret);
-		return NULL;
+	ev_async_init(&d->notify_ev, dispatch_cmd_cb);
+	ev_async_start(d->evbase, &d->notify_ev);
+
+	ev_set_userdata(d->evbase, d);
+
+	if (pthread_create(&d->tid, NULL, dispatch_runner, d) == 0) {
+		return 0;
+	} else {
+		return -1;
 	}
-
-	return ret;
 }
 
 void
@@ -1469,50 +1782,20 @@ dispatch_init_listeners()
 }
 
 /**
- * Starts a new dispatcher specialised in handling incoming connections
- * (and putting them on the queue for handling the connections).
- */
-dispatcher *
-dispatch_new_listener(unsigned char id)
-{
-	return dispatch_new(id, LISTENER, NULL, NULL, 0, 0);
-}
-
-/**
- * Starts a new dispatcher specialised in handling incoming data on
- * existing connections.
- */
-dispatcher *
-dispatch_new_connection(unsigned char id, router *r, char *allowed_chars,
-		int maxinplen, int maxmetriclen)
-{
-	return dispatch_new(id, CONNECTION, r, allowed_chars,
-			maxinplen, maxmetriclen);
-}
-
-/**
  * Starts a new dispatchers specialised in handling incoming data
  * on existing and incoming connections
  */
 unsigned char
-dispatch_new_connections(router *r, char *allowed_chars,
+dispatch_start_connections(router *r, char *allowed_chars,
 		int maxinplen, int maxmetriclen)
 {
 	unsigned char id = 0;
-	/* ensure the listener id is at the end for regex_t array hack */
-	workers[id] = dispatch_new_listener(workercnt);
-	if (workers[id] == NULL)
-		return 0;
 	for (id = 0; id < workercnt; id++) {
-		workers[id + 1] = dispatch_new_connection(
-				id, r, allowed_chars,
-				maxinplen, maxmetriclen);
-		if (workers[id + 1] == NULL) {
-			logerr("failed to add worker %d\n", id);
-			break;
+		if (dispatch_start(id, r, allowed_chars, maxinplen, maxmetriclen) == -1) {
+			logerr("failed to start worker %d\n", id);
+			return -1;
 		}
 	}
-	workers[id + 1] = NULL;  /* sentinel */
 	return id;
 }
 
@@ -1523,13 +1806,14 @@ void
 dispatch_stop(dispatcher *d)
 {
 	__sync_bool_compare_and_swap(&(d->keep_running), 1, 0);
+	dispatch_notify_shutdown(d, NULL);
 }
 
 void
 dispatchs_stop(void)
 {
 	int id;
-	for (id = 0; id < 1 + workercnt; id++)
+	for (id = 0; id < workercnt; id++)
 		dispatch_stop(workers[id]);
 }
 
@@ -1564,9 +1848,8 @@ void
 dispatchs_free()
 {
 	int id;
-	for (id = 0; id < 1 + dispatch_workercnt(); id++) {
+	for (id = 1; id < 1 + workercnt; id++)
 		dispatch_free(workers[id]);
-	}
 	free(workers);
 }
 
@@ -1600,6 +1883,7 @@ dispatch_schedulereload(dispatcher *d, router *r)
 {
 	d->pending_rtr = r;
 	__sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 1);
+	dispatch_notify_reload(d, NULL);
 }
 
 void
