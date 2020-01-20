@@ -15,6 +15,7 @@
  */
 
 
+#include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -29,6 +30,9 @@
 #include <sys/resource.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+#include <event2/event-config.h>
+#include <event2/event.h>
 
 #include "relay.h"
 #include "router.h"
