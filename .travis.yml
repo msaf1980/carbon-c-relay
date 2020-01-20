@@ -22,9 +22,9 @@ script:
   - |
     if [ $TRAVIS_OS_NAME = osx ]; then
       brew update > /dev/null
-      brew install openssl oniguruma pcre pcre2 snappy
+      brew install openssl oniguruma pcre pcre2 snappy libevent
     else
-      sudo apt-get install libonig-dev libpcre3-dev libssl-dev zlib1g-dev libsnappy-dev wget
+      sudo apt-get install libonig-dev libpcre3-dev libssl-dev zlib1g-dev libsnappy-dev wget libevent-dev
       # Install temporary bugfix for lz4
       # https://bugs.launchpad.net/ubuntu/+source/lz4/+bug/1851499
       wget https://github.com/msaf1980/repo/raw/master/xenial/liblz4-1_0.0%7Er131-2ubuntu2_amd64.deb
