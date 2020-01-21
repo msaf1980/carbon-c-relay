@@ -112,14 +112,16 @@ typedef struct _z_strm {
 
 typedef struct _connection {
 	int sock;
+	struct event *ev;
 	z_strm *strm;
 	char takenby;
 	char srcaddr[24];  /* string representation of source address */
-	char buf[METRIC_BUFSIZ];
+	char *buf;
+	int bufsize;
 	int buflen;
 	char needmore:1;
 	char noexpire:1;
-	char metric[METRIC_BUFSIZ];
+	char *metric;
 	destination dests[CONN_DESTS_SIZE];
 	size_t destlen;
 	struct timeval lastwork;
@@ -131,6 +133,9 @@ typedef struct _connection {
 
 struct _dispatcher {
 	pthread_t tid;
+	struct event_base *evbase;
+	struct event *notify_ev;
+	int notify_fd[2];
 	enum conntype type;
 	char id;
 	size_t metrics;
@@ -152,6 +157,15 @@ struct _dispatcher {
 	char tags_supported;
 	int maxinplen;
 	int maxmetriclen;
+};
+
+typedef void (*ev_cb)(int fd, short flags, void* arg);
+
+struct evcmd {
+	int fd; /* -1 - shutdown */
+	short flags;
+	ev_cb cb;
+	void *arg;
 };
 
 static listener **listeners = NULL;
@@ -540,7 +554,7 @@ dispatch_check_rlimit_and_warn(void)
  * Listener sockets are those which need to be accept()-ed on.
  */
 int
-dispatch_addlistener(listener *lsnr)
+dispatch_addlistener(listener *lsnr, dispatcher *d)
 {
 	int c;
 	int *socks;
@@ -568,8 +582,9 @@ dispatch_addlistener(listener *lsnr)
 	for (c = 0; c < MAX_LISTENERS; c++) {
 		if (listeners[c] == NULL) {
 			listeners[c] = lsnr;
-			for (socks = lsnr->socks; *socks != -1; socks++)
+			for (socks = lsnr->socks; *socks != -1; socks++) {
 				(void) fcntl(*socks, F_SETFL, O_NONBLOCK);
+			}
 			break;
 		}
 	}
@@ -658,6 +673,15 @@ dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
 		}
 	}
 	pthread_rwlock_unlock(&listenerslock);
+}
+
+
+static void
+connection_free(connection *c)
+{
+	free(c->strm);
+	free(c->buf);
+	free(c->metric);
 }
 
 #define CONNGROWSZ  1024
@@ -810,6 +834,9 @@ dispatch_addconnection(int sock, listener *lsnr)
 		ibuf = NULL;
 #endif
 
+	connections[c].bufsize = METRIC_BUFSIZ;
+	connections[c].buf = malloc(connections[c].bufsize);
+	connections[c].metric = malloc(METRIC_BUFSIZ);
 
 	/* setup decompressor */
 	if (lsnr == NULL) {
@@ -822,6 +849,8 @@ dispatch_addconnection(int sock, listener *lsnr)
 			logerr("cannot add new connection: "
 					"out of memory allocating gzip stream\n");
 			free(ibuf);
+			free(connections[c].buf);
+			free(connections[c].metric);
 			free(connections[c].strm);
 			__sync_bool_compare_and_swap(&(connections[c].takenby), C_SETUP, C_FREE);
 			return -1;
@@ -1240,6 +1269,30 @@ static void *
 dispatch_runner(void *arg)
 {
 	dispatcher *self = (dispatcher *)arg;
+	event_base_dispatch(self->evbase);
+	return NULL;
+}
+
+static void
+dispatch_cmd_cb(int fd, short event, void *arg)
+{
+	struct evcmd cmd;
+	dispatcher *self = (dispatcher *) arg;
+	ssize_t n = read(fd, &cmd, sizeof(cmd));
+	if (n == sizeof(cmd)) {
+		if (cmd.fd == -1) {
+			struct timeval tv;
+			tv.tv_sec = 1;
+			tv.tv_usec = 0;
+			event_base_loopexit(self->evbase, &tv);
+		}
+	}
+}
+
+static void *
+dispatch_runner_old(void *arg)
+{
+	dispatcher *self = (dispatcher *)arg;
 	connection *conn;
 	int c;
 
@@ -1398,17 +1451,43 @@ dispatch_new(
 	ret->prevticks = 0;
 	ret->prevsleeps = 0;
 
+	ret->evbase = NULL;
+	ret->notify_ev = NULL;
+	ret->notify_fd[0] = -1;
+	ret->notify_fd[1] = -1;
+
 	/* switch tag support on when the user didn't allow ';' as valid
 	 * character in metrics */
 	if (allowed_chars != NULL && strchr(allowed_chars, ';') == NULL)
 		ret->tags_supported = 1;
 
-	if (pthread_create(&ret->tid, NULL, dispatch_runner, ret) != 0) {
+	if (socketpair(AF_LOCAL, SOCK_STREAM, 0, ret->notify_fd) == -1) {
 		free(ret);
 		return NULL;
 	}
 
-	return ret;
+	if ((ret->evbase = event_base_new()) == NULL)
+		goto ERROR;
+
+	ret->notify_ev = event_new(ret->evbase, ret->notify_fd[1], EV_READ|EV_PERSIST,
+							   dispatch_cmd_cb, ret);
+	if (ret->notify_ev == NULL)
+		goto ERROR;
+	event_add(ret->notify_ev, NULL);
+
+	if (pthread_create(&ret->tid, NULL, dispatch_runner, ret) == 0) {
+		return ret;
+	}
+
+ERROR:
+	event_del(ret->notify_ev);
+	event_free(ret->notify_ev);
+	event_base_free(ret->evbase);
+	close(ret->notify_fd[0]);
+	close(ret->notify_fd[1]);
+	free(ret);
+
+	return NULL;
 }
 
 void
@@ -1463,7 +1542,10 @@ dispatch_new_connection(unsigned char id, router *r, char *allowed_chars,
 void
 dispatch_stop(dispatcher *d)
 {
+	struct evcmd cmd;
 	__sync_bool_compare_and_swap(&(d->keep_running), 1, 0);
+	cmd.fd = -1;
+	write(d->notify_fd[0], &cmd, sizeof(cmd));
 }
 
 /**

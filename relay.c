@@ -944,15 +944,6 @@ main(int argc, char * const argv[])
 		exit_err("failed to allocate listeners\n");
 	}
 
-	lsnrs = router_get_listeners(rtr);
-	for ( ; lsnrs != NULL; lsnrs = lsnrs->next) {
-		if (bindlisten(lsnrs, listenbacklog) != 0) {
-			exit_err("failed to setup listener\n");
-		}
-		if (dispatch_addlistener(lsnrs) != 0) {
-			exit_err("failed to add listener\n");
-		}
-	}
 	/* ensure the listener id is at the end for regex_t array hack */
 	if ((workers[0] = dispatch_new_listener((unsigned char)workercnt)) == NULL)
 		logerr("failed to add listener dispatcher\n");
@@ -973,6 +964,16 @@ main(int argc, char * const argv[])
 	if (id < workercnt) {
 		logerr("shutting down due to errors\n");
 		keep_running = 0;
+	}
+
+	lsnrs = router_get_listeners(rtr);
+	for ( ; lsnrs != NULL; lsnrs = lsnrs->next) {
+		if (bindlisten(lsnrs, listenbacklog) != 0) {
+			exit_err("failed to setup listener\n");
+		}
+		if (dispatch_addlistener(lsnrs) != 0) {
+			exit_err("failed to add listener\n");
+		}
 	}
 
 	/* server used for delivering metrics produced inside the relay,
