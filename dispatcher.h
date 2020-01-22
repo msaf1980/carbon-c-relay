@@ -26,6 +26,9 @@ typedef struct _dispatcher dispatcher;
 
 char dispatch_global_alloc(void);
 void dispatch_check_rlimit_and_warn(void);
+char dispatch_workers_alloc(char count);
+dispatcher **dispatch_workers(void);
+char dispatch_workercnt(void);
 int dispatch_addlistener(listener *lsnr);
 void dispatch_removelistener(listener *lsnr);
 void dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r);
@@ -36,9 +39,14 @@ char dispatch_init_listeners(void);
 dispatcher *dispatch_new_listener(unsigned char id);
 dispatcher *dispatch_new_connection( unsigned char id, router *r,
 		char *allowed_chars, int maxinplen, int maxmetriclen);
+unsigned char dispatch_new_connections(router *r, char *allowed_chars,
+		int maxinplen, int maxmetriclen);
 void dispatch_stop(dispatcher *d);
+void dispatchs_stop(void);
 void dispatch_shutdown(dispatcher *d);
+void dispatch_shutdown_id(unsigned char id);
 void dispatch_free(dispatcher *d);
+void dispatchs_free();
 size_t dispatch_get_ticks(dispatcher *self);
 size_t dispatch_get_metrics(dispatcher *self);
 size_t dispatch_get_blackholes(dispatcher *self);
@@ -52,8 +60,11 @@ size_t dispatch_get_sleeps_sub(dispatcher *self);
 size_t dispatch_get_accepted_connections(void);
 size_t dispatch_get_closed_connections(void);
 void dispatch_hold(dispatcher *d);
+void dispatchs_hold();
 void dispatch_schedulereload(dispatcher *d, router *r);
+void dispatchs_schedulereload(router *r);
 char dispatch_reloadcomplete(dispatcher *d);
+void dispatch_wait_reloadcomplete();
 
 
 #endif

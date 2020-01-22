@@ -150,6 +150,8 @@ struct _dispatcher {
 	int maxmetriclen;
 };
 
+static dispatcher **workers = NULL;
+static char workercnt = 0;
 static listener **listeners = NULL;
 static connection *connections = NULL;
 static size_t connectionslen = 0;
@@ -527,6 +529,41 @@ dispatch_check_rlimit_and_warn(void)
 					"consider raising max open files/max descriptor limit\n",
 					(int)ofiles.rlim_max);
 	}
+}
+
+/**
+ * Allocate workers. On errors return -1
+ */
+char
+dispatch_workers_alloc(char count)
+{
+	workers = malloc(sizeof(dispatcher *) *
+			(1/*lsnr*/ + count + 1/*sentinel*/));
+	if (workers == NULL)
+		workercnt = -1;
+	else {
+		int id;
+		for (id = 0; id < count + 2; id++) {
+			workers[id] = NULL;
+		}
+		workercnt = count;
+	}
+	return workercnt;
+}
+
+dispatcher **
+dispatch_workers(void)
+{
+	return &workers[1];
+}
+
+/*
+ * Get workers count
+ */
+char
+dispatch_workercnt(void)
+{
+	return workercnt;
 }
 
 #define MAX_LISTENERS 32  /* hopefully enough */
@@ -1454,12 +1491,46 @@ dispatch_new_connection(unsigned char id, router *r, char *allowed_chars,
 }
 
 /**
+ * Starts a new dispatchers specialised in handling incoming data
+ * on existing and incoming connections
+ */
+unsigned char
+dispatch_new_connections(router *r, char *allowed_chars,
+		int maxinplen, int maxmetriclen)
+{
+	unsigned char id = 0;
+	/* ensure the listener id is at the end for regex_t array hack */
+	workers[id] = dispatch_new_listener(workercnt);
+	if (workers[id] == NULL)
+		return 0;
+	for (id = 0; id < workercnt; id++) {
+		workers[id + 1] = dispatch_new_connection(
+				id, r, allowed_chars,
+				maxinplen, maxmetriclen);
+		if (workers[id + 1] == NULL) {
+			logerr("failed to add worker %d\n", id);
+			break;
+		}
+	}
+	workers[id + 1] = NULL;  /* sentinel */
+	return id;
+}
+
+/**
  * Signals this dispatcher to stop whatever it's doing.
  */
 void
 dispatch_stop(dispatcher *d)
 {
 	__sync_bool_compare_and_swap(&(d->keep_running), 1, 0);
+}
+
+void
+dispatchs_stop(void)
+{
+	int id;
+	for (id = 0; id < 1 + workercnt; id++)
+		dispatch_stop(workers[id]);
 }
 
 /**
@@ -1472,6 +1543,13 @@ dispatch_shutdown(dispatcher *d)
 	pthread_join(d->tid, NULL);
 }
 
+void
+dispatch_shutdown_id(unsigned char id)
+{
+	dispatch_stop(workers[id]);
+	pthread_join(workers[id]->tid, NULL);
+}
+
 /**
  * Free up resources taken by dispatcher d.  The caller should make sure
  * the dispatcher has been shut down at this point.
@@ -1480,6 +1558,16 @@ void
 dispatch_free(dispatcher *d)
 {
 	free(d);
+}
+
+void
+dispatchs_free()
+{
+	int id;
+	for (id = 0; id < 1 + dispatch_workercnt(); id++) {
+		dispatch_free(workers[id]);
+	}
+	free(workers);
 }
 
 /**
@@ -1495,6 +1583,14 @@ dispatch_hold(dispatcher *d)
 	__sync_bool_compare_and_swap(&(d->hold), 0, 1);
 }
 
+void
+dispatchs_hold(void)
+{
+	int id;
+	for (id = 1; id < 1 + workercnt; id++)
+		dispatch_hold(workers[id]);
+}
+
 /**
  * Schedules routes r to be put in place for the current routes.  The
  * replacement is performed at the next cycle of the dispatcher.
@@ -1506,6 +1602,14 @@ dispatch_schedulereload(dispatcher *d, router *r)
 	__sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 1);
 }
 
+void
+dispatchs_schedulereload(router *r)
+{
+	int id;
+	for (id = 1; id < 1 + workercnt; id++)
+		dispatch_schedulereload(workers[id], r);
+}
+
 /**
  * Returns true if the routes scheduled to be reloaded by a call to
  * dispatch_schedulereload() have been activated.
@@ -1514,6 +1618,15 @@ inline char
 dispatch_reloadcomplete(dispatcher *d)
 {
 	return __sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 0);
+}
+
+void dispatch_wait_reloadcomplete()
+{
+	int id;
+	for (id = 1; id < 1 + workercnt; id++) {
+		while (!dispatch_reloadcomplete(workers[id]))
+			usleep((100 + (rand() % 200)) * 1000);  /* 100ms - 300ms */
+	}
 }
 
 /**
