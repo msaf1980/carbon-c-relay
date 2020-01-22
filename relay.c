@@ -65,8 +65,6 @@ static int sockbufsize = 0;
 static int collector_interval = 60;
 static unsigned int listenbacklog = 32;
 static col_mode smode = CUM;
-static dispatcher **workers = NULL;
-static char workercnt = 0;
 static router *rtr = NULL;
 static server *internal_submission = NULL;
 static char *relay_logfile = NULL;
@@ -171,7 +169,7 @@ do_reload(void)
 	}
 
 	logout("reloading config from '%s'\n", config);
-	if ((newrtr = router_readconfig(NULL, config, workercnt,
+	if ((newrtr = router_readconfig(NULL, config, dispatch_workercnt(),
 					queuesize, batchsize, maxstalls,
 					iotimeout, sockbufsize, listenport)) == NULL)
 	{
@@ -213,8 +211,7 @@ do_reload(void)
 	 * service seemingly for a bit, but results in less confusing output
 	 * in the end. */
 	logout("interrupting workers\n");
-	for (id = 1; id < 1 + workercnt; id++)
-		dispatch_hold(workers[id]);
+	dispatchs_hold();
 
 	numaggregators = aggregator_numaggregators(router_getaggregators(rtr));
 	if (numaggregators > 0) {
@@ -276,10 +273,9 @@ do_reload(void)
 	router_start(newrtr);
 
 	logout("reloading workers\n");
-	for (id = 1; id < 1 + workercnt; id++)
-		dispatch_schedulereload(workers[id], newrtr); /* un-holds */
-	for (id = 1; id < 1 + workercnt; id++) {
-		while (!dispatch_reloadcomplete(workers[id + 0]))
+	dispatchs_schedulereload(newrtr); /* un-holds */
+	for (id = 1; id < 1 + dispatch_workercnt(); id++) {
+		while (!dispatch_id_reloadcomplete(id))
 			usleep((100 + (rand() % 200)) * 1000);  /* 100ms - 300ms */
 	}
 
@@ -441,6 +437,7 @@ main(int argc, char * const argv[])
 	listener *lsnrs;
 	int maxmetriclen = -1;
 	int maxinplen = -1;
+	char workercount = 0;
 
 	if (gethostname(relay_hostname, sizeof(relay_hostname)) < 0)
 		snprintf(relay_hostname, sizeof(relay_hostname), "127.0.0.1");
@@ -487,8 +484,8 @@ main(int argc, char * const argv[])
 				}
 				break;
 			case 'w':
-				workercnt = (char)atoi(optarg);
-				if (workercnt <= 0) {
+				workercount = (char)atoi(optarg);
+				if (workercount <= 0) {
 					fprintf(stderr, "error: workers needs to be a number >0\n");
 					do_usage(argv[0], 1);
 				}
@@ -636,8 +633,8 @@ main(int argc, char * const argv[])
 	/* seed randomiser for dispatcher and aggregator "splay" */
 	srand(time(NULL));
 
-	if (workercnt == 0)
-		workercnt = mode & MODE_SUBMISSION ? 2 : get_cores();
+	if (workercount == 0)
+		workercount = mode & MODE_SUBMISSION ? 2 : get_cores();
 
 	/* disable collector for submission mode */
 	if (mode & MODE_SUBMISSION)
@@ -823,7 +820,7 @@ main(int argc, char * const argv[])
 	if (relay_stdout != NULL) {
 		fprintf(relay_stdout, "configuration:\n");
 		fprintf(relay_stdout, "    relay hostname = %s\n", relay_hostname);
-		fprintf(relay_stdout, "    workers = %d\n", workercnt);
+		fprintf(relay_stdout, "    workers = %d\n", workercount);
 		fprintf(relay_stdout, "    send batch size = %d\n", batchsize);
 		fprintf(relay_stdout, "    server queue size = %d\n", queuesize);
 		fprintf(relay_stdout, "    server max stalls = %d\n", maxstalls);
@@ -866,7 +863,7 @@ main(int argc, char * const argv[])
 	OpenSSL_add_all_algorithms();
 #endif
 
-	if ((rtr = router_readconfig(NULL, config, workercnt,
+	if ((rtr = router_readconfig(NULL, config, workercount,
 					queuesize, batchsize, maxstalls,
 					iotimeout, sockbufsize, listenport)) == NULL)
 	{
@@ -933,9 +930,7 @@ main(int argc, char * const argv[])
 		exit_err("failed to ignore SIGPIPE: %s\n", strerror(errno));
 	}
 
-	workers = malloc(sizeof(dispatcher *) *
-			(1/*lsnr*/ + workercnt + 1/*sentinel*/));
-	if (workers == NULL) {
+	if (dispatch_workers_alloc(workercount) == -1) {
 		exit_err("failed to allocate memory for workers\n");
 	}
 
@@ -945,23 +940,13 @@ main(int argc, char * const argv[])
 	}
 
 	/* ensure the listener id is at the end for regex_t array hack */
-	if ((workers[0] = dispatch_new_listener((unsigned char)workercnt)) == NULL)
+	if (dispatch_new_listener((unsigned char)workercount) == NULL)
 		logerr("failed to add listener dispatcher\n");
 
 	if (allowed_chars == NULL)
 		allowed_chars = "-_:#";
-	logout("starting %d workers\n", workercnt);
-	for (id = 0; id < workercnt; id++) {
-		workers[id + 1] = dispatch_new_connection(
-				(unsigned char)id, rtr, allowed_chars,
-				maxinplen, maxmetriclen);
-		if (workers[id + 1] == NULL) {
-			logerr("failed to add worker %d\n", id);
-			break;
-		}
-	}
-	workers[id + 1] = NULL;  /* sentinel */
-	if (id < workercnt) {
+	logout("starting %d workers\n", workercount);
+	if (dispatch_new_connections(rtr, allowed_chars, maxinplen, maxmetriclen) < workercount) {
 		logerr("shutting down due to errors\n");
 		keep_running = 0;
 	}

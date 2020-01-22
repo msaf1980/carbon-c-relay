@@ -32,7 +32,6 @@
 #include <arpa/inet.h>
 
 #include <event2/event-config.h>
-#include <event2/event.h>
 
 #include "relay.h"
 #include "router.h"
@@ -116,12 +115,11 @@ typedef struct _connection {
 	z_strm *strm;
 	char takenby;
 	char srcaddr[24];  /* string representation of source address */
-	char *buf;
-	int bufsize;
+	char buf[METRIC_BUFSIZ];
 	int buflen;
 	char needmore:1;
 	char noexpire:1;
-	char *metric;
+	char metric[METRIC_BUFSIZ];
 	destination dests[CONN_DESTS_SIZE];
 	size_t destlen;
 	struct timeval lastwork;
@@ -163,11 +161,11 @@ typedef void (*ev_cb)(int fd, short flags, void* arg);
 
 struct evcmd {
 	int fd; /* -1 - shutdown */
-	short flags;
-	ev_cb cb;
 	void *arg;
 };
 
+static dispatcher **workers = NULL;
+static char workercnt = 0;
 static listener **listeners = NULL;
 static connection *connections = NULL;
 static size_t connectionslen = 0;
@@ -547,6 +545,29 @@ dispatch_check_rlimit_and_warn(void)
 	}
 }
 
+char
+dispatch_workers_alloc(char count)
+{
+	workers = malloc(sizeof(dispatcher *) *
+			(1/*lsnr*/ + count + 1/*sentinel*/));
+	if (workers == NULL)
+		workercnt = -1;
+	else {
+		int id;
+		for (id = 0; id < count + 2; id++) {
+			workers[id] = NULL;
+		}
+		workercnt = count;
+	}
+	return workercnt;
+}
+
+char
+dispatch_workercnt(void)
+{
+	return workercnt;
+}
+
 #define MAX_LISTENERS 32  /* hopefully enough */
 
 /**
@@ -554,7 +575,7 @@ dispatch_check_rlimit_and_warn(void)
  * Listener sockets are those which need to be accept()-ed on.
  */
 int
-dispatch_addlistener(listener *lsnr, dispatcher *d)
+dispatch_addlistener(listener *lsnr)
 {
 	int c;
 	int *socks;
@@ -833,10 +854,6 @@ dispatch_addconnection(int sock, listener *lsnr)
 	} else
 		ibuf = NULL;
 #endif
-
-	connections[c].bufsize = METRIC_BUFSIZ;
-	connections[c].buf = malloc(connections[c].bufsize);
-	connections[c].metric = malloc(METRIC_BUFSIZ);
 
 	/* setup decompressor */
 	if (lsnr == NULL) {
@@ -1281,10 +1298,14 @@ dispatch_cmd_cb(int fd, short event, void *arg)
 	ssize_t n = read(fd, &cmd, sizeof(cmd));
 	if (n == sizeof(cmd)) {
 		if (cmd.fd == -1) {
+			/* shutdown */
 			struct timeval tv;
 			tv.tv_sec = 1;
 			tv.tv_usec = 0;
 			event_base_loopexit(self->evbase, &tv);
+		} else {
+			struct event* accept_event = event_new(self->evbase, cmd.fd, EV_READ | EV_PERSIST, dispatch_accept_cb, cmd.arg);
+
 		}
 	}
 }
@@ -1521,7 +1542,11 @@ dispatch_init_listeners()
 dispatcher *
 dispatch_new_listener(unsigned char id)
 {
-	return dispatch_new(id, LISTENER, NULL, NULL, 0, 0);
+	 dispatcher *d = dispatch_new(id, LISTENER, NULL, NULL, 0, 0);
+	 if (d != NULL) {
+		 workers[0] = d;
+	}
+	return d;
 }
 
 /**
@@ -1534,6 +1559,24 @@ dispatch_new_connection(unsigned char id, router *r, char *allowed_chars,
 {
 	return dispatch_new(id, CONNECTION, r, allowed_chars,
 			maxinplen, maxmetriclen);
+}
+
+unsigned char
+dispatch_new_connections(router *r, char *allowed_chars,
+		int maxinplen, int maxmetriclen)
+{
+	unsigned char id;
+	for (id = 0; id < workercnt; id++) {
+		workers[id + 1] = dispatch_new_connection(
+				id, r, allowed_chars,
+				maxinplen, maxmetriclen);
+		if (workers[id + 1] == NULL) {
+			logerr("failed to add worker %d\n", id);
+			break;
+		}
+	}
+	workers[id + 1] = NULL;  /* sentinel */
+	return id;
 }
 
 /**
@@ -1581,6 +1624,14 @@ dispatch_hold(dispatcher *d)
 	__sync_bool_compare_and_swap(&(d->hold), 0, 1);
 }
 
+void
+dispatchs_hold(void)
+{
+	int id;
+	for (id = 1; id < 1 + workercnt; id++)
+		dispatch_hold(workers[id]);
+}
+
 /**
  * Schedules routes r to be put in place for the current routes.  The
  * replacement is performed at the next cycle of the dispatcher.
@@ -1592,6 +1643,14 @@ dispatch_schedulereload(dispatcher *d, router *r)
 	__sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 1);
 }
 
+void
+dispatchs_schedulereload(router *r)
+{
+	int id;
+	for (id = 1; id < 1 + workercnt; id++)
+		dispatch_schedulereload(workers[id], r);
+}
+
 /**
  * Returns true if the routes scheduled to be reloaded by a call to
  * dispatch_schedulereload() have been activated.
@@ -1600,6 +1659,12 @@ inline char
 dispatch_reloadcomplete(dispatcher *d)
 {
 	return __sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 0);
+}
+
+inline char
+dispatch_id_reloadcomplete(int dispatcher_id)
+{
+	return __sync_bool_compare_and_swap(&(workers[dispatcher_id]->route_refresh_pending), 0, 0);
 }
 
 /**

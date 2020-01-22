@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <event2/event.h>
+
 #include "relay.h"
 #include "server.h"
 #include "aggregator.h"
@@ -57,6 +59,7 @@ typedef struct _router_listener {
 	char *ip;
 	unsigned short port;
 	int *socks;
+	struct event *ev;
 #ifdef HAVE_SSL
 	SSL_CTX *ctx;
 	SSL **sslstrms;
