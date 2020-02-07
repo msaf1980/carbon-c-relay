@@ -30,7 +30,14 @@
 #include <openssl/ssl.h>
 #endif
 
+#ifdef __APPLE__
+#ifdef EV_ERROR
+#undef EV_ERROR
+#endif
+#endif
 #include <ev.h>
+
+extern int ev_mode;
 
 #define PMODE_NORM    (1 << 0)
 #define PMODE_AGGR    (1 << 1)

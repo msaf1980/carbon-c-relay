@@ -218,7 +218,7 @@ determine_if_regex(allocator *a, char workercnt, route *r, char *pat)
 		int i;
 		int ret;
 
-		r->rule = ra_malloc(a, sizeof(*r->rule) * workercnt + 1);
+		r->rule = ra_malloc(a, sizeof(*r->rule) * (workercnt + 1) + 1);
 		if (r->rule == NULL) {
 			logerr("determine_if_regex: malloc failed for "
 					"regular expressions\n");

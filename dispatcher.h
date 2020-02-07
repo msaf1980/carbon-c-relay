@@ -48,8 +48,8 @@ unsigned char dispatch_start_connections(router *r, char *allowed_chars,
 		int maxinplen, int maxmetriclen);
 void dispatch_stop(dispatcher *d);
 void dispatchs_stop(void);
-void dispatch_shutdown(dispatcher *d);
-void dispatch_shutdown_id(unsigned char id);
+void dispatch_wait_shutdown(dispatcher *d);
+void dispatch_wait_shutdown_byid(unsigned char id);
 void dispatch_free(dispatcher *d);
 void dispatchs_free();
 size_t dispatch_get_ticks(dispatcher *self);

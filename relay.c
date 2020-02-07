@@ -54,6 +54,8 @@ char *sslCA = NULL;
 char sslCAisdir = 0;
 #endif
 
+int ev_mode;
+
 static char *config = NULL;
 static int batchsize = 2500;
 static int queuesize = 25000;
@@ -859,6 +861,10 @@ main(int argc, char * const argv[])
 	OpenSSL_add_all_algorithms();
 #endif
 
+	if (ev_supported_backends () & ~ev_recommended_backends () & EVBACKEND_KQUEUE) {
+        ev_mode = EVBACKEND_KQUEUE;
+	}
+
 	if (dispatch_workers_alloc(workercount) == -1) {
 		exit_err("failed to allocate memory for workers\n");
 	}
@@ -1024,8 +1030,8 @@ main(int argc, char * const argv[])
 	/* make sure we don't write to our servers any more */
 	logout("stopped worker");
 	dispatchs_stop();
-	for (id = 0; id < dispatch_workercnt(); id++) {
-		dispatch_shutdown_id(id);
+	for (id = 0; id < 1 + dispatch_workercnt(); id++) {
+		dispatch_wait_shutdown_byid(id);
 		fprintf(relay_stdout, " %d", id + 1);
 		fflush(relay_stdout);
 	}

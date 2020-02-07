@@ -33,8 +33,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#include <ev.h>
-
 #include "queue.h"
 #include "relay.h"
 #include "router.h"
@@ -104,7 +102,8 @@ typedef struct _z_strm {
 #define CONNGROWSZ  1024
 #define MAX_LISTENERS 32  /* hopefully enough */
 #define POLL_TIMEOUT  100
-#define IDLE_DISCONNECT_TIME  (10 * 60.0)  /* 10 minutes */
+#define IDLE_DISCONNECT_TIME (10 * 60.0)  /* 10 minutes */
+#define CMD_QUEUE_SIZE 100
 
 /* connection takenby */
 #define C_SETUP -2 /* being setup */
@@ -714,13 +713,20 @@ void dispatch_read_cb(struct ev_loop *loop, ev_io *io, int revents)
 	}
 	ev_timer_stop (loop, &conn->ev_timeout);
 	if (dispatch_connection(conn, d, start) == 0) {
-		logout("disconnect socket %d\n", conn->sock);
 		ev_timer_stop(loop, &conn->ev_timeout);
 		ev_io_stop(loop, io);
-	}
-	if (!conn->noexpire) {
-		ev_timer_set (&conn->ev_timeout, IDLE_DISCONNECT_TIME, 0.);
-		ev_timer_start (loop, &conn->ev_timeout);
+	} else {
+		if (d->running) {
+			if (!conn->noexpire) {
+				ev_timer_set (&conn->ev_timeout, IDLE_DISCONNECT_TIME, 0.);
+				ev_timer_start (loop, &conn->ev_timeout);
+				}
+		} else {
+			/* dispatcher was shutdown */
+			ev_timer_stop(loop, &conn->ev_timeout);
+			ev_io_stop(loop, io);
+			dispatch_closeconnection(conn, d, 0);
+		}
 	}
 
 	gettimeofday(&stop, NULL);
@@ -735,10 +741,9 @@ void dispatch_timeout_cb(struct ev_loop *loop, ev_timer *timer, int revents)
 	struct timeval start, stop;
 
 	gettimeofday(&start, NULL);
-	if (!__sync_bool_compare_and_swap(&(conn->takenby), d->id, d->id))
-			return;
 	ev_io_stop(loop, &conn->ev);
 	ev_timer_stop(loop, &conn->ev_timeout);
+	tracef("dispatch %d: timeout connection on socket %d\n", d->id, conn->sock);
 	dispatch_closeconnection(conn, d, 0);
 
 	gettimeofday(&stop, NULL);
@@ -748,6 +753,7 @@ void dispatch_timeout_cb(struct ev_loop *loop, ev_timer *timer, int revents)
 void dispatch_accept_cb(struct ev_loop *loop, ev_io *io, int revents)
 {
 	ev_io_sock *lsock = (ev_io_sock *) io;
+	dispatcher *d  = (dispatcher *) ev_userdata(loop);
     int client;
 	struct sockaddr addr;
 	socklen_t addrlen = sizeof(addr);
@@ -761,9 +767,12 @@ void dispatch_accept_cb(struct ev_loop *loop, ev_io *io, int revents)
 		__sync_add_and_fetch(&errorsconnections, 1);
 		return;
 	}
-
-	(void) fcntl(client, F_SETFL, O_NONBLOCK);
-	dispatch_addconnection(client, lsock->lsnr, dispatch_worker_with_low_connections());
+	if (!d->running) {
+		close(client);
+	} else {
+		(void) fcntl(client, F_SETFL, O_NONBLOCK);
+		dispatch_addconnection(client, lsock->lsnr, dispatch_worker_with_low_connections());
+	}
 }
 
 /**
@@ -853,7 +862,7 @@ dispatch_check_rlimit_and_warn(void)
 dispatcher **
 dispatch_workers(void)
 {
-	return &workers[1];
+	return workers;
 }
 
 dispatcher *
@@ -865,7 +874,7 @@ dispatch_listener_worker(void)
 dispatcher *
 dispatch_worker_with_low_connections(void)
 {
-	return workers[0];
+	return workers[1];
 }
 
 /*
@@ -927,7 +936,7 @@ __dispatch_addlistener(struct ev_loop *loop, listener *lsnr)
 			if (lsnr->ctype == CON_UDP) {
 				connections[c]->isudp = 1;
 			}
-			acceptedconnections--;
+			__sync_add_and_fetch(&acceptedconnections, -1);
 		}
 
 		return 0;
@@ -1335,7 +1344,7 @@ dispatch_addconnection_aggr(int sock)
 
 	connections[c]->noexpire = 1;
 	connections[c]->isaggr = 1;
-	acceptedconnections--;
+	__sync_add_and_fetch(&acceptedconnections, -1);
 
 	return 0;
 }
@@ -1406,7 +1415,7 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 					q - conn->metric > self->maxinplen - 1 ||
 					firstspace - conn->metric > self->maxmetriclen)
 			{
-				tracef("dispatcher %d, connfd %d, discard metric %s",
+				tracef("dispatcher %d, connfd %d, discard metric %s\n",
 						self->id, conn->sock, conn->metric);
 				__sync_add_and_fetch(&(self->discards), 1);
 				q = conn->metric;
@@ -1429,7 +1438,7 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 					router_route(self->rtr,
 						conn->dests, &conn->destlen, CONN_DESTS_SIZE,
 						conn->srcaddr,
-						conn->metric, firstspace, self->id - 1));
+						conn->metric, firstspace, self->id));
 			tracef("dispatcher %d, connfd %d, destinations %zd\n",
 					self->id, conn->sock, conn->destlen);
 
@@ -1639,12 +1648,14 @@ dispatch_runner(void *arg)
 	dispatcher *d = (dispatcher *)arg;
 	size_t len = queue_len(d->cmd_queue);
 	size_t i;
+	d->running = 1;
 	for (i = 0; i < len; i++) {
 		dispatch_cmd_cb(d->evbase, &d->notify_ev, 0);
 	}
-	d->running = 1;
 	ev_run (d->evbase, 0);
 	d->running = 0;
+	/* execute pending for connections dispatcher */
+	ev_invoke_pending (d->evbase);
 	ev_async_stop(d->evbase, &d->notify_ev);
 	ev_loop_destroy(d->evbase);
 	return NULL;
@@ -1664,7 +1675,7 @@ dispatch_new(
 
 	if (ret == NULL)
 		return NULL;
-	ret->evbase =  ev_loop_new(EVFLAG_AUTO);
+	ret->evbase =  ev_loop_new(ev_mode);
 	if (ret->evbase == NULL) {
 		free(ret);
 		return NULL;
@@ -1672,8 +1683,8 @@ dispatch_new(
 	ret->type = type;
 
 	ret->running = 0;
-	ret->id = id + 1;  /* ensure > 0 */
-	ret->cmd_queue = queue_new(100);
+	ret->id = id;
+	ret->cmd_queue = queue_new(CMD_QUEUE_SIZE);
 	ret->keep_running = 1;
 	ret->route_refresh_pending = 0;
 	ret->hold = 0;
@@ -1709,14 +1720,14 @@ dispatch_workers_alloc(char count)
 			logerr("failed to add listener dispatcher\n");
 			return -1;
 		}
-		for (id = 1; id <= count; id++) {
+		for (id = 1; id < 1 + count; id++) {
 			if ((workers[id] = dispatch_new(id, CONNECTION)) == NULL) {
 				logerr("failed to add connection dispatcher\n");
 				return -1;
 			}
 		}
-		workers[id + 1] = NULL; /* sentinel */
-		workercnt = id;
+		workers[id] = NULL; /* sentinel */
+		workercnt = count;
 	}
 	return workercnt;
 }
@@ -1790,7 +1801,7 @@ dispatch_start_connections(router *r, char *allowed_chars,
 		int maxinplen, int maxmetriclen)
 {
 	unsigned char id = 0;
-	for (id = 0; id < workercnt; id++) {
+	for (id = 0; id < 1 + workercnt; id++) {
 		if (dispatch_start(id, r, allowed_chars, maxinplen, maxmetriclen) == -1) {
 			logerr("failed to start worker %d\n", id);
 			return -1;
@@ -1813,7 +1824,7 @@ void
 dispatchs_stop(void)
 {
 	int id;
-	for (id = 0; id < workercnt; id++)
+	for (id = 0; id < 1 + workercnt; id++)
 		dispatch_stop(workers[id]);
 }
 
@@ -1821,16 +1832,14 @@ dispatchs_stop(void)
  * Shuts down dispatcher d.  Returns when the dispatcher has terminated.
  */
 void
-dispatch_shutdown(dispatcher *d)
+dispatch_wait_shutdown(dispatcher *d)
 {
-	dispatch_stop(d);
 	pthread_join(d->tid, NULL);
 }
 
 void
-dispatch_shutdown_id(unsigned char id)
+dispatch_wait_shutdown_byid(unsigned char id)
 {
-	dispatch_stop(workers[id]);
 	pthread_join(workers[id]->tid, NULL);
 }
 
@@ -1848,7 +1857,7 @@ void
 dispatchs_free()
 {
 	int id;
-	for (id = 1; id < 1 + workercnt; id++)
+	for (id = 0; id < 1 + workercnt; id++)
 		dispatch_free(workers[id]);
 	free(workers);
 }

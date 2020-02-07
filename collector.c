@@ -170,19 +170,19 @@ collector_runner(void *s)
 			totblackholes += blackholes = d_blackholes(dispatchers[i]);
 			totdiscards += discards = d_discards(dispatchers[i]);
 			snprintf(m, sizem, "dispatcher%d.metricsReceived %zu %zu\n",
-					i + 1, metrics, (size_t)now);
+					i, metrics, (size_t)now);
 			send(metric);
 			snprintf(m, sizem, "dispatcher%d.metricsBlackholed %zu %zu\n",
-					i + 1, blackholes, (size_t)now);
+					i, blackholes, (size_t)now);
 			send(metric);
 			snprintf(m, sizem, "dispatcher%d.metricsDiscarded %zu %zu\n",
-					i + 1, discards, (size_t)now);
+					i, discards, (size_t)now);
 			send(metric);
 			snprintf(m, sizem, "dispatcher%d.wallTime_us %zu %zu\n",
-					i + 1, ticks, (size_t)now);
+					i, ticks, (size_t)now);
 			send(metric);
 			snprintf(m, sizem, "dispatcher%d.sleepTime_us %zu %zu\n",
-					i + 1, sleeps, (size_t)now);
+					i, sleeps, (size_t)now);
 			send(metric);
 		}
 		snprintf(m, sizem, "metricsReceived %zu %zu\n",
