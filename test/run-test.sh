@@ -86,6 +86,7 @@ end=10000
 rm -f dual-large-compress.payload dual-large-compress.payloadout
 rm -f dual-large-gzip.payload dual-large-gzip.payloadout
 rm -f dual-large-lz4.payload dual-large-lz4.payloadout
+rm -f dual-large-udp.payload dual-large-udp.payloadout
 echo "foo.bar 1 2" > dual-large-compress.payload
 while [ $i -le $end ]; do
     echo "large.foo.bar.${i} 1 2" >> dual-large-compress.payload
@@ -98,6 +99,8 @@ ln -sf dual-large-compress.payload dual-large-lz4.payload
 ln -sf dual-large-compress.payloadout dual-large-lz4.payloadout
 ln -sf dual-large-compress.payload dual-large-ssl.payload
 ln -sf dual-large-compress.payloadout dual-large-ssl.payloadout
+ln -sf dual-large-compress.payloadout dual-large-udp.payload
+ln -sf dual-large-compress.payloadout dual-large-udp.payloadout
 }
 
 run_configtest() {
@@ -283,7 +286,6 @@ run_servertest() {
 	if [[ $? != 0 ]] ; then
 		# hmmm
 		echo "failed to send payload"
-		exit 1
 		return 1
 	fi
 	# allow everything to be processed
@@ -430,7 +432,8 @@ rm -f buftest.payload buftest.payloadout \
 	large.payload large.payloadout large-ssl.payload large-ssl.payloadout \
 	large-compress.payload large-compress.payloadout \
 	large-gzip.payload large-gzip.payloadout large-lz4.payload large-lz4.payloadout \
-	dual-large-gzip.payload dual-large-gzip.payloadout dual-large-lz4.payload dual-large-lz4.payloadout dual-large-ssl.payload dual-large-ssl.payloadout
+	dual-large-gzip.payload dual-large-gzip.payloadout dual-large-lz4.payload dual-large-lz4.payloadout dual-large-ssl.payload dual-large-ssl.payloadout \
+	dual-large-udp.payload dual-large-udp.payloadout
 
 echo "Ran ${tstcnt} tests with ${tstfail} failing"
 [ "${tstfailed}" == "" ] || echo "failed: ${tstfailed}"

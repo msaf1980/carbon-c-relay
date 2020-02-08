@@ -131,6 +131,7 @@ CRTESTS = \
 	dual-lz4 \
 	large-lz4 \
 	dual-large-lz4 \
+	dual-large-udp \
 	$(NULL)
 
 if SSL_ENABLED
