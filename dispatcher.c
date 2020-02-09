@@ -124,7 +124,7 @@ struct _dispatcher {
 	pthread_t tid;
 	enum conntype type;
 	char id;
-	size_t connections;
+	size_t connections; /* for balance dispatchers */
 	size_t metrics;
 	size_t blackholes;
 	size_t discards;
@@ -786,7 +786,6 @@ dispatch_cmd_cb(struct ev_loop *loop, ev_async *io, int revents)
 			case EV_CMD_READ:
 				{
 					connection *conn = (connection *) cmd->arg;
-					__sync_add_and_fetch(&d->connections, 1);
 					ev_io_init(&conn->ev, dispatch_read_cb, conn->sock, EV_READ);
 					ev_io_start(loop, &conn->ev);
 					if (!conn->noexpire) {
@@ -840,7 +839,19 @@ dispatch_listener_worker(void)
 dispatcher *
 dispatch_worker_with_low_connections(void)
 {
-	return workers[1];
+	dispatcher *d = workers[1];
+	size_t min = __sync_fetch_and_add(&(d->connections), 0);
+	size_t i;
+	for (i = 2; i < 1 + workercnt; i++) {
+		size_t c = __sync_fetch_and_add(&(workers[i]->connections), 0);
+		if (c < min) {
+			min = c;
+			d = workers[i];
+		}
+	}
+	/* increase connection counter, decrease on connection close or error */
+	__sync_fetch_and_add(&(d->connections), 1);
+	return d;
 }
 
 /*
@@ -1080,7 +1091,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			logerr("cannot add new connection: "
 					"out of memory allocating more slots (max = %zu)\n",
 					connectionslen);
-
+			__sync_add_and_fetch(&d->connections, -1);
 			pthread_rwlock_unlock(&connectionslock);
 			return NULL;
 		}
@@ -1095,6 +1106,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			logerr("cannot allocate new connection: "
 					"out of memory allocating more slots (max = %zu)\n",
 					connectionslen);
+			__sync_add_and_fetch(&d->connections, -1);
 			pthread_rwlock_unlock(&connectionslock);
 			return NULL;
 		}
@@ -1132,6 +1144,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 	if (conn->strm == NULL) {
 		logerr("cannot add new connection: "
 				"out of memory allocating stream\n");
+		__sync_add_and_fetch(&d->connections, -1);
 		__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 		return NULL;
 	}
@@ -1159,6 +1172,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			logerr("cannot add new connection: %s\n",
 					ERR_reason_error_string(ERR_get_error()));
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		};
@@ -1183,6 +1197,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			logerr("cannot add new connection: "
 					"out of memory allocating stream ibuf\n");
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		}
@@ -1203,6 +1218,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 					"out of memory allocating gzip stream\n");
 			free(ibuf);
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		}
@@ -1233,6 +1249,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 					"out of memory allocating lz4 stream\n");
 			free(ibuf);
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		}
@@ -1240,6 +1257,8 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			logerr("Failed to create LZ4 decompression context\n");
 			free(ibuf);
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
+			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		}
 		lzstrm->ibuf = ibuf;
@@ -1263,6 +1282,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			free(ibuf);
 			free(conn->strm);
+			__sync_add_and_fetch(&d->connections, -1);
 			__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_FREE);
 			return NULL;
 		}
@@ -1292,6 +1312,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 		conn->strm->strmclose(conn->strm);
 		__sync_bool_compare_and_swap(&(conn->takenby), C_IN, C_SETUP);
 		__sync_add_and_fetch(&errorsconnections, 1);
+		__sync_add_and_fetch(&d->connections, -1);
 		logerr("dispatch %d: failed to "
 				"pass new connection on socket %d\n",
 				d->id, sock);
@@ -1494,9 +1515,9 @@ dispatch_closeconnection(connection *conn, dispatcher *self, ssize_t len)
 	tracef("dispatcher: %d, connfd: %d, len: %zd [%s], disconnecting\n",
 		self->id, conn->sock, len,
 		len < 0 ? strerror(errno) : "");
+	__sync_add_and_fetch(&self->connections, -1);
 	__sync_add_and_fetch(&closedconnections, 1);
 	conn->strm->strmclose(conn->strm);
-	__sync_add_and_fetch(&self->connections, -1);
 
 		/* flag this connection as no longer in use, unless there is
 		 * pending metrics to send */
