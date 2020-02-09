@@ -287,7 +287,7 @@ run_servertest() {
 		return 1
 	fi
 	# allow everything to be processed
-	sleep 2
+	sleep 3
 
 	# kill and wait for relay to come down
 	local pids=$(< "${pidfile}")
