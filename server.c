@@ -663,14 +663,14 @@ server_queuereader(void *d)
 
 			if (self->ctype == CON_PIPE) {
 				int intconn[2];
-				int c;
+				connection *conn;
 				if (pipe(intconn) < 0) {
 					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
 						logerr("failed to create pipe: %s\n", strerror(errno));
 					continue;
 				}
-				c = dispatch_addconnection(intconn[0], NULL, dispatch_listener_worker());
-				if (c == -1) {
+				conn = dispatch_addconnection(intconn[0], NULL, dispatch_listener_worker());
+				if (conn == NULL) {
 					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
 						logerr("failed to add pipe: %s\n", strerror(errno));
 					continue;

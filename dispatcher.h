@@ -36,13 +36,13 @@ connection *dispatch_get_connection(int c);
 int dispatch_addlistener(listener *lsnr);
 int dispatch_removelistener(listener *lsnr);
 int dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r);
-int dispatch_addconnection(int sock, listener *lsnr, dispatcher *d);
-int dispatch_addconnection_aggr(int sock);
+connection *dispatch_addconnection(int sock, listener *lsnr, dispatcher *d);
+connection *dispatch_addconnection_aggr(int sock);
 void dispatch_set_bufsize(unsigned int sockbufsize);
 char dispatch_init_listeners(void);
 int dispatch_start_listener(unsigned char id, router *r,
 		char *allowed_chars, int maxinplen, int maxmetriclen);
-int dispatch_start_connection( unsigned char id, router *r,
+int dispatch_start_connection(unsigned char id, router *r,
 		char *allowed_chars, int maxinplen, int maxmetriclen);
 unsigned char dispatch_start_connections(router *r, char *allowed_chars,
 		int maxinplen, int maxmetriclen);

@@ -29,7 +29,7 @@ typedef struct _aggregator {
 	unsigned short expire;    /* when incoming metrics are no longer valid */
 	enum _aggr_timestamp { TS_START, TS_MIDDLE, TS_END } tswhen;
 	unsigned char bucketcnt;
-	int disp_conn;
+	/* int disp_conn; */
 	int fd;
 	size_t received;
 	size_t sent;
