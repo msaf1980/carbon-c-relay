@@ -911,9 +911,7 @@ __dispatch_addlistener(struct ev_loop *loop, listener *lsnr)
 				return 1;
 
 			conn->noexpire = 1;
-			if (lsnr->ctype == CON_UDP) {
-				conn->isudp = 1;
-			}
+			conn->isudp = 1;
 			__sync_add_and_fetch(&acceptedconnections, -1);
 		}
 
