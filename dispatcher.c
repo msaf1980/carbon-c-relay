@@ -103,7 +103,7 @@ typedef struct _z_strm {
 #define MAX_LISTENERS 32  /* hopefully enough */
 #define POLL_TIMEOUT  100
 #define IDLE_DISCONNECT_TIME (10 * 60.0)  /* 10 minutes */
-#define CMD_QUEUE_SIZE 100
+#define CMD_QUEUE_SIZE 2000
 
 /* connection takenby */
 #define C_SETUP -2 /* being setup */
@@ -114,7 +114,6 @@ typedef struct _z_strm {
 typedef struct _ev_cmd {
 	int what;
 	void *arg;
-	int *done;
 } ev_cmd;
 
 struct _dispatcher {
@@ -546,17 +545,17 @@ sslclose(z_strm *strm)
 }
 #endif
 
-static inline int waitfor_done(int *done)
+static inline int waitfor_done(int *done, size_t wcount)
 {
 	int i;
 	if (done == NULL)
 		return 0;
-	usleep(10);
-	for (i = 0; i < 100; i++)
+	usleep(100);
+	for (i = 0; i < wcount; i++)
 	{
 		if (__sync_bool_compare_and_swap(done, 1, 1))
 			return 0;
-		usleep(100);
+		usleep(1000);
 	}
 	return -1;
 }
@@ -570,69 +569,71 @@ static inline void set_done(int *done)
 		__sync_bool_compare_and_swap(done, 0, 1);
 }
 
-static int dispatch_notify(dispatcher *d, ev_cmd *cmd, int *done) {
-	cmd->done = done;
-	if (done)
-		*done = 0;
+static int dispatch_notify(dispatcher *d, ev_cmd *cmd) {
+	int i;
+	for (i  = 0; i < 100; i++) {
+		if (queue_free(d->cmd_queue) == 0)
+			usleep(1000);
+		else
+			break;
+	}
 	if (queue_putback(d->cmd_queue, (char *) cmd) == 0) {
 		return -1;
 	}
 	if (d->running) {
 		ev_async_send(d->evbase, &d->notify_ev);
-		return waitfor_done(done);
-	} else {
-		return 0;
 	}
+	return 0;
 }
 
 /*
  * Write shutdown command to command socket
  **/
 static int
-dispatch_notify_shutdown(dispatcher *d, int *done)
+dispatch_notify_shutdown(dispatcher *d)
 {
 	ev_cmd *cmd = malloc(sizeof(ev_cmd));
 	if (cmd == NULL)
 		return -1;
 	cmd->what = EV_CMD_SHUTDOWN;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 static int
-dispatch_notify_reload(dispatcher *d, int *done)
+dispatch_notify_reload(dispatcher *d)
 {
 	ev_cmd *cmd = malloc(sizeof(ev_cmd));
 	if (cmd == NULL)
 		return -1;
 	cmd->what = EV_CMD_RELOAD;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 /*
  * Write accept command to command socket
  **/
 static int
-dispatch_notify_read(dispatcher *d, connection *conn, int *done)
+dispatch_notify_read(dispatcher *d, connection *conn)
 {
 	ev_cmd *cmd = malloc(sizeof(ev_cmd));
 	if (cmd == NULL)
 		return -1;
 	cmd->what = EV_CMD_READ;
 	cmd->arg = conn;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 static int __dispatch_addlistener(struct ev_loop *loop, listener *lsnr);
 
 static int
-dispatch_notify_addlistener(dispatcher *d, listener *lsnr, int *done)
+dispatch_notify_addlistener(dispatcher *d, listener *lsnr)
 {
 	ev_cmd *cmd = malloc(sizeof(ev_cmd));
 	if (cmd == NULL)
 		return -1;
 	cmd->what = EV_CMD_LADD;
 	cmd->arg = lsnr;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 static int __dispatch_removelistener(struct ev_loop *loop, listener *lsnr);
@@ -645,7 +646,7 @@ dispatch_notify_removelistener(dispatcher *d, listener *lsnr, int *done)
 		return -1;
 	cmd->what = EV_CMD_LREMOVE;
 	cmd->arg = lsnr;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 static int __dispatch_transplantlistener(struct ev_loop *loop, listener *olsnr, listener *nlsnr, router *r);
@@ -658,7 +659,7 @@ dispatch_notify_transplantlistener(dispatcher *d, transplantlistener *tr, int *d
 		return -1;
 	cmd->what = EV_CMD_LTRANSPLANT;
 	cmd->arg = tr;
-	return dispatch_notify(d, cmd, done);
+	return dispatch_notify(d, cmd);
 }
 
 void dispatch_read_cb(struct ev_loop *loop, ev_io *io, int revents)
@@ -797,7 +798,7 @@ dispatch_cmd_cb(struct ev_loop *loop, ev_async *io, int revents)
 			default:
 				logerr("dispatcher %d: unknown cmd %d\n", d->id, cmd->what);
 		}
-		set_done(cmd->done);
+		free(cmd);
 	}
 }
 
@@ -864,9 +865,9 @@ dispatch_workercnt(void)
 }
 
 int
-dispatch_connection_to_worker(dispatcher *d, connection *conn,  int *done)
+dispatch_connection_to_worker(dispatcher *d, connection *conn)
 {
-	return dispatch_notify_read(d, conn, done);
+	return dispatch_notify_read(d, conn);
 }
 
 connection *
@@ -878,13 +879,12 @@ dispatch_get_connection(int c)
 int
 dispatch_addlistener(listener *lsnr)
 {
-	int done = 0;
-	int res = dispatch_notify_addlistener(workers[0], lsnr, &done);
+	int res = dispatch_notify_addlistener(workers[0], lsnr);
 	if (res != 0) {
 		logerr("dispatch: failed to notify addlistener\n");
 		return 1;
 	}
-	return waitfor_done(&done);
+	return 0;
 }
 
 /**
@@ -952,7 +952,7 @@ dispatch_removelistener(listener *lsnr)
 		logerr("dispatch: failed to notify removelistener\n");
 		return 1;
 	}
-	return waitfor_done(&done);
+	return waitfor_done(&done, 100);
 }
 
 /**
@@ -1011,7 +1011,7 @@ dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
 		logerr("dispatch: failed to notify transplantlistener (%d)\n", errno);
 		return 1;
 	}
-	return waitfor_done(&done);
+	return waitfor_done(&done, 100);
 
 }
 
@@ -1306,14 +1306,14 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d)
 	gettimeofday(&conn->lastwork, NULL);
 	/* after this dispatchers will pick this connection up */
 	__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_IN);
-	if (dispatch_connection_to_worker(d, conn, NULL) == -1) {
+	if (dispatch_connection_to_worker(d, conn) == -1) {
 		conn->strm->strmclose(conn->strm);
 		__sync_bool_compare_and_swap(&(conn->takenby), C_IN, C_SETUP);
 		__sync_add_and_fetch(&errorsconnections, 1);
 		__sync_add_and_fetch(&d->connections, -1);
 		logerr("dispatch %d: failed to "
-				"pass new connection on socket %d\n",
-				d->id, sock);
+				"pass new connection on socket %d, cmd queue size %zd\n",
+				d->id, sock, queue_len(d->cmd_queue));
 		return NULL;
 	}
 	__sync_add_and_fetch(&acceptedconnections, 1);
@@ -1813,7 +1813,7 @@ void
 dispatch_stop(dispatcher *d)
 {
 	__sync_bool_compare_and_swap(&(d->keep_running), 1, 0);
-	dispatch_notify_shutdown(d, NULL);
+	dispatch_notify_shutdown(d);
 }
 
 void
@@ -1888,7 +1888,7 @@ dispatch_schedulereload(dispatcher *d, router *r)
 {
 	d->pending_rtr = r;
 	__sync_bool_compare_and_swap(&(d->route_refresh_pending), 0, 1);
-	dispatch_notify_reload(d, NULL);
+	dispatch_notify_reload(d);
 }
 
 void
