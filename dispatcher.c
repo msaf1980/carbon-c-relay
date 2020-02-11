@@ -182,6 +182,8 @@ typedef struct _transplantlistener {
 	router *r;
 } transplantlistener;
 
+struct event_config *evcfg;
+
 static dispatcher **workers = NULL;
 static unsigned char workercnt = 0;
 static listener **listeners = NULL;
@@ -1675,7 +1677,7 @@ dispatch_new(
 		return NULL;
 	}
 
-	if ((ret->evbase = event_base_new()) == NULL) {
+	if ((ret->evbase = event_base_new_with_config(evcfg)) == NULL) {
 		queue_free(ret->notify_queue);
 		free(ret);
 		return NULL;
@@ -1730,6 +1732,13 @@ dispatch_new(
 char
 dispatch_workers_alloc(char count)
 {
+	struct timeval scan_tv = { 0, 100*1000 };
+	evcfg = event_config_new();
+	if (evcfg == NULL) {
+		logerr("failed to add event_base config\n");
+		return -1;
+	}
+	event_config_set_max_dispatch_interval(evcfg, &scan_tv, 5, 1);
 	workers = malloc(sizeof(dispatcher *) *
 			(1/*lsnr*/ + count + 1/*sentinel*/));
 	if (workers == NULL)
