@@ -36,8 +36,9 @@ connection *dispatch_get_connection(int c);
 int dispatch_addlistener(listener *lsnr);
 int dispatch_removelistener(listener *lsnr);
 int dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r);
-connection *dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, char no_expire);
+connection *dispatch_addconnection(int sock, listener *lsnr, char is_aggr, char no_expire);
 connection *dispatch_addconnection_aggr(int sock);
+int dispatch_connection_to_worker(dispatcher *d, connection *conn);
 void dispatch_set_bufsize(unsigned int sockbufsize);
 char dispatch_init_listeners(void);
 int dispatch_start_listener(unsigned char id, router *r,

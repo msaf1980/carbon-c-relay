@@ -669,8 +669,8 @@ server_queuereader(void *d)
 						logerr("failed to create pipe: %s\n", strerror(errno));
 					continue;
 				}
-				conn = dispatch_addconnection(intconn[0], NULL, dispatch_worker_with_low_connections(), 0, 1);
-				if (conn == NULL) {
+				conn = dispatch_addconnection(intconn[0], NULL, 0, 1);
+				if (conn == NULL && dispatch_connection_to_worker(dispatch_listener_worker(), conn) == -1) {
 					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
 						logerr("failed to add pipe: %s\n", strerror(errno));
 					continue;

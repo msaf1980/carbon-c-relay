@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include "queue.h"
+#include "workqueue.h"
 #include "relay.h"
 #include "router.h"
 #include "server.h"
@@ -104,6 +105,7 @@ typedef struct _z_strm {
 #define POLL_TIMEOUT  100
 #define IDLE_DISCONNECT_TIME (10 * 60)  /* 10 minutes */
 #define CMD_QUEUE_SIZE 20
+#define WORKQUEUE_SIZE 1000
 
 /* connection takenby */
 #define C_SETUP -2 /* being setup */
@@ -182,6 +184,7 @@ typedef struct _transplantlistener {
 	router *r;
 } transplantlistener;
 
+static workqueue wq;
 static dispatcher **workers = NULL;
 static unsigned char workercnt = 0;
 static listener **listeners = NULL;
@@ -587,6 +590,8 @@ dispatch_notify_shutdown(dispatcher *d)
 static int __dispatch_addlistener(dispatcher *d, listener *lsnr);
 static int __dispatch_removelistener(dispatcher *d, listener *lsnr);
 static int __dispatch_transplantlistener(dispatcher *d, listener *olsnr, listener *nlsnr, router *r);
+static int dispatch_connection_with_worker(dispatcher *d, connection *conn);
+static void dispatch_releaseconnection(int sock);
 
 static int
 dispatch_notify_reload(dispatcher *d)
@@ -682,8 +687,11 @@ void dispatch_accept_cb(int fd, short flags, void *arg)
 	if (!d->running) {
 		close(client);
 	} else {
+		connection *conn;
 		(void) fcntl(client, F_SETFL, O_NONBLOCK);
-		dispatch_addconnection(client, lsock->lsnr, dispatch_worker_with_low_connections(), 0, 0);
+		conn = dispatch_addconnection(client, lsock->lsnr, 0, 0);
+		if (conn != NULL)
+			dispatch_connection_with_worker(d, conn);
 	}
 }
 
@@ -732,16 +740,7 @@ dispatch_cmd(dispatcher *d, ev_cmd *cmd)
 		case EV_CMD_READ:
 			{
 				connection *conn = (connection *) cmd->arg;
-				conn->d = cmd->d;
-				if (!conn->noexpire) {
-					struct timeval tv;
-					tv.tv_sec = IDLE_DISCONNECT_TIME;
-					tv.tv_usec = 0;
-					event_add(conn->ev, &tv);
-				} else {
-					event_add(conn->ev, NULL);
-				}
-				tracef("dispatcher %d: event read add for socket %d\n", conn->d->id, conn->sock);
+				dispatch_connection_with_worker(d, conn);
 			}
 			break;
 		default:
@@ -832,15 +831,48 @@ dispatch_workercnt(void)
 int
 dispatch_connection_to_worker(dispatcher *d, connection *conn)
 {
+	int ret = 0;
 	conn->d = d;
 	if (conn->noexpire) {
 		conn->ev = event_new(d->evbase, conn->sock, EV_READ | EV_PERSIST, dispatch_read_cb, conn);
 	} else {
 		conn->ev = event_new(d->evbase, conn->sock, EV_TIMEOUT | EV_READ | EV_PERSIST, dispatch_read_cb, conn);
 	}
-	if (conn->ev == NULL)
+	if (conn->ev == NULL) {
+		ret = -1;
+	} else if (dispatch_notify_read(d, conn) == -1) {
+		ret = -1;
+	}
+	if (ret == -1) {
+		dispatch_releaseconnection(conn->sock);
 		return -1;
-	return dispatch_notify_read(d, conn);
+	}
+	return 0;
+}
+
+int
+dispatch_connection_with_worker(dispatcher *d, connection *conn)
+{
+	conn->d = d;
+	if (!conn->noexpire) {
+		struct timeval tv;
+		tv.tv_sec = IDLE_DISCONNECT_TIME;
+		tv.tv_usec = 0;
+		conn->ev = event_new(d->evbase, conn->sock, EV_TIMEOUT | EV_READ | EV_PERSIST, dispatch_read_cb, conn);
+		if (conn->ev != NULL)
+			event_add(conn->ev, &tv);
+	} else {
+		conn->ev = event_new(d->evbase, conn->sock, EV_READ | EV_PERSIST, dispatch_read_cb, conn);
+		if (conn->ev != NULL)
+			event_add(conn->ev, NULL);
+	}
+	if (conn->ev == NULL) {
+		dispatch_releaseconnection(conn->sock);
+		return -1;
+	}
+	__sync_add_and_fetch(&acceptedconnections, 1);
+	tracef("dispatcher %d: event read add for socket %d\n", conn->d->id, conn->sock);
+	return 0;
 }
 
 connection *
@@ -877,10 +909,11 @@ __dispatch_addlistener(dispatcher *d, listener *lsnr)
 		 * that connection won't be closed after being idle, and won't
 		 * count that connection as an incoming connection either. */
 		for (socks = lsnr->socks; socks->sock != -1; socks++) {
-			conn = dispatch_addconnection(socks->sock, lsnr, d, 0, 1);
+			conn = dispatch_addconnection(socks->sock, lsnr, 0, 1);
 
-			if (conn == NULL)
+			if (conn == NULL && dispatch_connection_with_worker(d, conn) == -1)
 				return 1;
+
 
 			socks->d = d;
 			socks->ev = conn->ev;
@@ -996,8 +1029,7 @@ dispatch_transplantlistener(listener *olsnr, listener *nlsnr, router *r)
 	return 0;
 
 }
-
-static inline void dispatch_releaseconnection(int sock)
+static void dispatch_releaseconnection(int sock)
 {
 	connection *conn;
 	pthread_rwlock_rdlock(&connectionslock);
@@ -1046,7 +1078,7 @@ __dispatch_transplantlistener(dispatcher *d, listener *olsnr, listener *nlsnr, r
  * Returns the connection id, or -1 if a failure occurred.
  */
 connection *
-dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, char no_expire)
+dispatch_addconnection(int sock, listener *lsnr, char is_aggr, char no_expire)
 {
 	int c;
 	connection *conn;
@@ -1063,7 +1095,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 			connections[sock] = malloc(sizeof(connection));
 			connections[sock]->takenby = C_SETUP;
 		} else {
-			logerr("dispatcher %d: addconnection for existing socket %d\n", d->id, sock);
+			logerr("dispatcher: addconnection for existing socket %d\n", sock);
 			/* abort(); */
 			pthread_rwlock_unlock(&connectionslock);
 			return NULL;
@@ -1075,13 +1107,12 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		if (connectionslen > sock) {
 			/* another dispatcher just extended the list */
 			pthread_rwlock_unlock(&connectionslock);
-			return dispatch_addconnection(sock, lsnr, d, is_aggr, no_expire);
+			return dispatch_addconnection(sock, lsnr, is_aggr, no_expire);
 		}
 		newlst = realloc(connections,
 				sizeof(connection *) * (sock + CONNGROWSZ));
 		if (newlst == NULL) {
 			pthread_rwlock_unlock(&connectionslock);
-			__sync_add_and_fetch(&d->connections, -1);
 			close(sock);
 			logerr("cannot add new connection: "
 					"out of memory allocating more slots (max = %zu)\n",
@@ -1097,7 +1128,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		connections[sock] = malloc(sizeof(connection));
 		if (connections[sock] == NULL) {
 			pthread_rwlock_unlock(&connectionslock);
-			__sync_add_and_fetch(&d->connections, -1);
 			logerr("cannot allocate new connection: "
 					"out of memory allocating more slots (max = %zu)\n",
 					connectionslen);
@@ -1135,7 +1165,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 	conn->strm = malloc(sizeof(z_strm));
 	if (conn->strm == NULL) {
 		dispatch_releaseconnection(sock);
-		__sync_add_and_fetch(&d->connections, -1);
 		logerr("cannot add new connection: "
 				"out of memory allocating stream\n");
 		return NULL;
@@ -1163,7 +1192,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		if ((conn->strm->hdl.ssl = SSL_new(lsnr->ctx)) == NULL) {
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			logerr("cannot add new connection: %s\n",
 					ERR_reason_error_string(ERR_get_error()));
 			return NULL;
@@ -1188,7 +1216,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		if (ibuf == NULL) {
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			logerr("cannot add new connection: "
 					"out of memory allocating stream ibuf\n");
 			return NULL;
@@ -1211,7 +1238,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 			free(ibuf);
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			return NULL;
 		}
 		zstrm->hdl.gz.z.zalloc = Z_NULL;
@@ -1242,7 +1268,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 			free(ibuf);
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			return NULL;
 		}
 		if (LZ4F_isError(LZ4F_createDecompressionContext(&lzstrm->hdl.lz4.lz, LZ4F_VERSION))) {
@@ -1250,7 +1275,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 			free(ibuf);
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			return NULL;
 		}
 		lzstrm->ibuf = ibuf;
@@ -1274,7 +1298,6 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 			free(ibuf);
 			free(conn->strm);
 			dispatch_releaseconnection(sock);
-			__sync_add_and_fetch(&d->connections, -1);
 			return NULL;
 		}
 
@@ -1309,6 +1332,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 	gettimeofday(&conn->lastwork, NULL);
 	/* after this dispatchers will pick this connection up */
 	__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_IN);
+	/*
 	if (dispatch_connection_to_worker(d, conn) == -1) {
 		connections[sock] = NULL;
 		conn->strm->strmclose(conn->strm);
@@ -1321,6 +1345,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		return NULL;
 	}
 	__sync_add_and_fetch(&acceptedconnections, 1);
+	*/
 
 	return conn;
 }
@@ -1334,13 +1359,19 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 connection *
 dispatch_addconnection_aggr(int sock)
 {
-	connection *conn = dispatch_addconnection(sock, NULL, dispatch_worker_with_low_connections(), 1, 1);
+	connection *conn = dispatch_addconnection(sock, NULL, 1, 1);
+	dispatcher *d  = dispatch_listener_worker();
 
 	if (conn == NULL)
 		return NULL;
 
-	__sync_add_and_fetch(&acceptedconnections, -1);
-
+	if (dispatch_connection_to_worker(d, conn) != -1) {
+		__sync_add_and_fetch(&errorsconnections, 1);
+		logerr("dispatch %d: failed to "
+				"pass new connection on socket %d\n",
+				d->id, sock);
+		return NULL;
+	}
 	return conn;
 }
 
@@ -1735,11 +1766,13 @@ dispatch_new(
 char
 dispatch_workers_alloc(char count)
 {
+	workercnt = -1;
+	if (workqueue_init(&wq, WORKQUEUE_SIZE) == -1) {
+		return -1;
+	}
 	workers = malloc(sizeof(dispatcher *) *
 			(1/*lsnr*/ + count + 1/*sentinel*/));
-	if (workers == NULL)
-		workercnt = -1;
-	else {
+	if (workers != NULL) {
 		unsigned char id;
 		workercnt = 0;
 		/* ensure the listener id is at the end for regex_t array hack */
