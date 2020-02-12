@@ -166,7 +166,7 @@ am_relay_OBJECTS = relay.$(OBJEXT) md5.$(OBJEXT) \
 	dispatcher.$(OBJEXT) conffile.tab.$(OBJEXT) \
 	conffile.yy.$(OBJEXT) allocator.$(OBJEXT) router.$(OBJEXT) \
 	queue.$(OBJEXT) server.$(OBJEXT) collector.$(OBJEXT) \
-	aggregator.$(OBJEXT)
+	aggregator.$(OBJEXT) workqueue.$(OBJEXT)
 relay_OBJECTS = $(am_relay_OBJECTS)
 am__DEPENDENCIES_1 =
 relay_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
@@ -199,7 +199,8 @@ am__depfiles_remade = ./$(DEPDIR)/aggregator.Po \
 	./$(DEPDIR)/faketime.Plo ./$(DEPDIR)/md5.Po \
 	./$(DEPDIR)/queue.Po ./$(DEPDIR)/receptor.Po \
 	./$(DEPDIR)/relay.Po ./$(DEPDIR)/router.Po \
-	./$(DEPDIR)/sendmetric.Po ./$(DEPDIR)/server.Po
+	./$(DEPDIR)/sendmetric.Po ./$(DEPDIR)/server.Po \
+	./$(DEPDIR)/workqueue.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -421,7 +422,7 @@ relay_SOURCES = \
 	server.c \
 	collector.c \
 	aggregator.c \
-	$(NULL)
+	workqueue.c
 
 sendmetric_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 sendmetric_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL)
@@ -644,6 +645,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/router.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sendmetric.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/server.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/workqueue.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -1013,6 +1015,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/router.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
+	-rm -f ./$(DEPDIR)/workqueue.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -1076,6 +1079,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/router.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
+	-rm -f ./$(DEPDIR)/workqueue.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
@@ -1142,6 +1146,7 @@ man:
 		--organization=Graphite \
 		--roff \
 	> relay.1
+	$(NULL)
 
 test: check
 test-%: relay libfaketime.la sendmetric

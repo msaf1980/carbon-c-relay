@@ -58,6 +58,7 @@ relay_SOURCES = \
 	server.c \
 	collector.c \
 	aggregator.c \
+	workqueue.c
 	$(NULL)
 sendmetric_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 sendmetric_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL)
