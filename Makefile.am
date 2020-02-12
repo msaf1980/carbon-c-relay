@@ -43,7 +43,7 @@ check_PROGRAMS = sendmetric
 lib_LTLIBRARIES = libfaketime.la
 relay_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 relay_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL) \
-			  $(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent
+			  $(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent -levent_pthreads
 relay_SOURCES = \
 	relay.c \
 	md5.c \

@@ -34,6 +34,8 @@
 # include <sys/sysctl.h>
 #endif
 
+#include <event2/thread.h>
+
 #include "relay.h"
 #include "server.h"
 #include "router.h"
@@ -860,6 +862,8 @@ main(int argc, char * const argv[])
 	SSL_load_error_strings();
 	OpenSSL_add_all_algorithms();
 #endif
+
+	evthread_use_pthreads();
 
 	if (dispatch_workers_alloc(workercount) == -1) {
 		exit_err("failed to allocate memory for workers\n");
