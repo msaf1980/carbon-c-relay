@@ -420,6 +420,27 @@ router_yyerror(
 	}
 }
 
+router *router_new(void) {
+	router *ret;
+	/* get a return structure (and allocator) in place */
+	if ((ret = malloc(sizeof(router))) == NULL) {
+		logerr("malloc failed for router return struct\n");
+		return NULL;
+	}
+	ret->a = ra_new();
+	if (ret->a == NULL) {
+		logerr("malloc failed for allocator\n");
+		free(ret);
+		return NULL;
+	}
+	ret->routes = NULL;
+	ret->aggregators = NULL;
+	ret->srvrs = NULL;
+	ret->clusters = NULL;
+
+	return ret;
+}
+
 /**
  * Parse ip string and validate it.  When it is a numeric address, write
  * the cannonical version in retip.
@@ -1250,14 +1271,8 @@ router_readconfig(router *orig,
 		char *err;
 
 		/* get a return structure (and allocator) in place */
-		if ((ret = malloc(sizeof(router))) == NULL) {
+		if ((ret = router_new()) == NULL) {
 			logerr("malloc failed for router return struct\n");
-			return NULL;
-		}
-		ret->a = ra_new();
-		if (ret->a == NULL) {
-			logerr("malloc failed for allocator\n");
-			free(ret);
 			return NULL;
 		}
 		ret->routes = NULL;

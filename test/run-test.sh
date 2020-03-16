@@ -473,17 +473,19 @@ run_reloadtest() {
 		done
 		[ "${reload_ret}" == "1" ] && echo FAIL
 
-		${SMEXEC} "${unixsock}" < "${payload}" || {
-			echo "FAIL unix socket send"
-			reload_ret=1
-		}
-		${SMEXEC} -t 127.0.0.1:${port} < "${payload}" || {
-			echo "FAIL tcp send"
-			reload_ret=1
-		}
-		${SMEXEC} -u 127.0.0.1:${port} < "${payload}" || {
-			echo "FAIL udp send"
-			reload_ret=1
+		[ "${reload_ret}" == "0" ] && {
+			${SMEXEC} "${unixsock}" < "${payload}" || {
+				echo "FAIL unix socket send"
+				reload_ret=1
+			}
+			${SMEXEC} -t 127.0.0.1:${port} < "${payload}" || {
+				echo "FAIL tcp send"
+				reload_ret=1
+			}
+			${SMEXEC} -u 127.0.0.1:${port} < "${payload}" || {
+				echo "FAIL udp send"
+				reload_ret=1
+			}
 		}
 		[ "${reload_ret}" == "1" ] && {
 			echo "=== ${conf} ==="
@@ -551,6 +553,16 @@ while [[ -n $1 ]] ; do
 	shift
 done
 
+ufail=0
+echo "Unit tests"
+for test in ../test_* ; do
+	[ -x "${test}" ] || continue
+	echo -n "# $( basename ${test} )"
+	${test} || ufail=1
+done
+[ "${ufail}" == "1" ] && exit 1
+
+echo "Integration tests"
 echo -n "generating datasets ..."
 buftest_generate
 large_generate

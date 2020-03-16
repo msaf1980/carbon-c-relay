@@ -106,6 +106,7 @@ build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = relay$(EXEEXT)
 check_PROGRAMS = sendmetric$(EXEEXT)
+noinst_PROGRAMS = test_router$(EXEEXT)
 @SSL_ENABLED_TRUE@am__append_1 = dual-ssl large-ssl dual-large-ssl
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -125,7 +126,7 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libdir)" \
 	"$(DESTDIR)$(man1dir)"
-PROGRAMS = $(bin_PROGRAMS)
+PROGRAMS = $(bin_PROGRAMS) $(noinst_PROGRAMS)
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
 am__vpath_adj = case $$p in \
     $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
@@ -161,22 +162,26 @@ AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-am_relay_OBJECTS = relay.$(OBJEXT) md5.$(OBJEXT) \
-	consistent-hash.$(OBJEXT) receptor.$(OBJEXT) \
-	dispatcher.$(OBJEXT) conffile.tab.$(OBJEXT) \
+am__objects_1 = md5.$(OBJEXT) consistent-hash.$(OBJEXT) \
+	receptor.$(OBJEXT) dispatcher.$(OBJEXT) conffile.tab.$(OBJEXT) \
 	conffile.yy.$(OBJEXT) allocator.$(OBJEXT) router.$(OBJEXT) \
 	queue.$(OBJEXT) server.$(OBJEXT) collector.$(OBJEXT) \
 	aggregator.$(OBJEXT)
+am_relay_OBJECTS = relay.$(OBJEXT) $(am__objects_1)
 relay_OBJECTS = $(am_relay_OBJECTS)
 am__DEPENDENCIES_1 =
-relay_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1)
+relay_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_sendmetric_OBJECTS = sendmetric.$(OBJEXT)
 sendmetric_OBJECTS = $(am_sendmetric_OBJECTS)
 sendmetric_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+am_test_router_OBJECTS = router_test.$(OBJEXT) $(am__objects_1)
+test_router_OBJECTS = $(am_test_router_OBJECTS)
+test_router_DEPENDENCIES = $(am__DEPENDENCIES_2)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -199,7 +204,8 @@ am__depfiles_remade = ./$(DEPDIR)/aggregator.Po \
 	./$(DEPDIR)/faketime.Plo ./$(DEPDIR)/md5.Po \
 	./$(DEPDIR)/queue.Po ./$(DEPDIR)/receptor.Po \
 	./$(DEPDIR)/relay.Po ./$(DEPDIR)/router.Po \
-	./$(DEPDIR)/sendmetric.Po ./$(DEPDIR)/server.Po
+	./$(DEPDIR)/router_test.Po ./$(DEPDIR)/sendmetric.Po \
+	./$(DEPDIR)/server.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -219,10 +225,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(libfaketime_la_SOURCES) $(relay_SOURCES) \
-	$(sendmetric_SOURCES)
 DIST_SOURCES = $(libfaketime_la_SOURCES) $(relay_SOURCES) \
-	$(sendmetric_SOURCES)
+	$(sendmetric_SOURCES) $(test_router_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -403,12 +407,7 @@ ACLOCAL_AMFLAGS = -I m4
 GIT_VERSION := $(shell git describe --abbrev=6 --dirty --always 2>/dev/null || echo $(RELEASEDATE))
 GVCFLAGS = -DGIT_VERSION=\"$(GIT_VERSION)\"
 lib_LTLIBRARIES = libfaketime.la
-relay_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-relay_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL) \
-			  $(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent -levent_pthreads
-
-relay_SOURCES = \
-	relay.c \
+SOURCES = \
 	md5.c \
 	consistent-hash.c \
 	receptor.c \
@@ -423,6 +422,12 @@ relay_SOURCES = \
 	aggregator.c \
 	$(NULL)
 
+RELAY_LIBS = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL) \
+			$(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent -levent_pthreads
+
+relay_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
+relay_LDADD = $(RELAY_LIBS)
+relay_SOURCES = relay.c $(SOURCES)
 sendmetric_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 sendmetric_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL)
 sendmetric_SOURCES = sendmetric.c
@@ -458,6 +463,8 @@ EXTRA_DIST = \
 	conffile.yy.c conffile.l \
 	$(NULL)
 
+test_router_SOURCES = router_test.c $(SOURCES)
+test_router_LDADD = $(RELAY_LIBS)
 CRTESTS = issue10 issue27 issue117 issue156 issue157 issue163 issue165 \
 	issue180 issue184 issue202 issue213 issue218 issue228 issue235 \
 	issue236 issue246 issue252 issue253 issue263 issue267 issue288 \
@@ -577,6 +584,15 @@ clean-checkPROGRAMS:
 	echo " rm -f" $$list; \
 	rm -f $$list
 
+clean-noinstPROGRAMS:
+	@list='$(noinst_PROGRAMS)'; test -n "$$list" || exit 0; \
+	echo " rm -f" $$list; \
+	rm -f $$list || exit $$?; \
+	test -n "$(EXEEXT)" || exit 0; \
+	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+	echo " rm -f" $$list; \
+	rm -f $$list
+
 install-libLTLIBRARIES: $(lib_LTLIBRARIES)
 	@$(NORMAL_INSTALL)
 	@list='$(lib_LTLIBRARIES)'; test -n "$(libdir)" || list=; \
@@ -623,6 +639,10 @@ sendmetric$(EXEEXT): $(sendmetric_OBJECTS) $(sendmetric_DEPENDENCIES) $(EXTRA_se
 	@rm -f sendmetric$(EXEEXT)
 	$(AM_V_GEN)$(sendmetric_LINK) $(sendmetric_OBJECTS) $(sendmetric_LDADD) $(LIBS)
 
+test_router$(EXEEXT): $(test_router_OBJECTS) $(test_router_DEPENDENCIES) $(EXTRA_test_router_DEPENDENCIES) 
+	@rm -f test_router$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(test_router_OBJECTS) $(test_router_LDADD) $(LIBS)
+
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 
@@ -642,6 +662,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/receptor.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/relay.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/router.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/router_test.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sendmetric.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/server.Po@am__quote@ # am--include-marker
 
@@ -994,7 +1015,8 @@ maintainer-clean-generic:
 clean: clean-am
 
 clean-am: clean-binPROGRAMS clean-checkPROGRAMS clean-generic \
-	clean-libLTLIBRARIES clean-libtool mostlyclean-am
+	clean-libLTLIBRARIES clean-libtool clean-noinstPROGRAMS \
+	mostlyclean-am
 
 distclean: distclean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
@@ -1011,6 +1033,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/receptor.Po
 	-rm -f ./$(DEPDIR)/relay.Po
 	-rm -f ./$(DEPDIR)/router.Po
+	-rm -f ./$(DEPDIR)/router_test.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
 	-rm -f Makefile
@@ -1074,6 +1097,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/receptor.Po
 	-rm -f ./$(DEPDIR)/relay.Po
 	-rm -f ./$(DEPDIR)/router.Po
+	-rm -f ./$(DEPDIR)/router_test.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
 	-rm -f Makefile
@@ -1102,13 +1126,13 @@ uninstall-man: uninstall-man1
 .PHONY: CTAGS GTAGS TAGS all all-am am--depfiles am--refresh check \
 	check-am check-local clean clean-binPROGRAMS \
 	clean-checkPROGRAMS clean-cscope clean-generic \
-	clean-libLTLIBRARIES clean-libtool cscope cscopelist-am ctags \
-	ctags-am dist dist-all dist-bzip2 dist-gzip dist-lzip \
-	dist-shar dist-tarZ dist-xz dist-zip distcheck distclean \
-	distclean-compile distclean-generic distclean-hdr \
-	distclean-libtool distclean-tags distcleancheck distdir \
-	distuninstallcheck dvi dvi-am html html-am info info-am \
-	install install-am install-binPROGRAMS install-data \
+	clean-libLTLIBRARIES clean-libtool clean-noinstPROGRAMS cscope \
+	cscopelist-am ctags ctags-am dist dist-all dist-bzip2 \
+	dist-gzip dist-lzip dist-shar dist-tarZ dist-xz dist-zip \
+	distcheck distclean distclean-compile distclean-generic \
+	distclean-hdr distclean-libtool distclean-tags distcleancheck \
+	distdir distuninstallcheck dvi dvi-am html html-am info \
+	info-am install install-am install-binPROGRAMS install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
 	install-exec-am install-exec-local install-html \
 	install-html-am install-info install-info-am \

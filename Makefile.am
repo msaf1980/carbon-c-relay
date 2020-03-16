@@ -41,11 +41,7 @@ man:
 bin_PROGRAMS = relay
 check_PROGRAMS = sendmetric
 lib_LTLIBRARIES = libfaketime.la
-relay_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-relay_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL) \
-			  $(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent -levent_pthreads
-relay_SOURCES = \
-	relay.c \
+SOURCES = \
 	md5.c \
 	consistent-hash.c \
 	receptor.c \
@@ -59,6 +55,12 @@ relay_SOURCES = \
 	collector.c \
 	aggregator.c \
 	$(NULL)
+RELAY_LIBS = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL) \
+			$(LIBONIGURUMA) $(LIBPCRE2) $(LIBPCRE) -levent -levent_pthreads
+relay_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
+relay_LDADD = $(RELAY_LIBS)
+relay_SOURCES = relay.c $(SOURCES)
+
 sendmetric_LINK = $(CCLD) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 sendmetric_LDADD = $(LIBGZIP) $(LIBLZ4) $(LIBSNAPPY) $(LIBSSL)
 sendmetric_SOURCES = sendmetric.c
@@ -93,6 +95,10 @@ EXTRA_DIST = \
 	conffile.tab.c conffile.tab.h conffile.y \
 	conffile.yy.c conffile.l \
 	$(NULL)
+
+noinst_PROGRAMS = test_router
+test_router_SOURCES = router_test.c $(SOURCES)
+test_router_LDADD = $(RELAY_LIBS)
 
 CRTESTS = \
 	issue10 \
