@@ -18,14 +18,26 @@
 #ifndef COLLECTOR_H
 #define COLLECTOR_H 1
 
+#include <time.h>
+
 #include "dispatcher.h"
 #include "router.h"
 #include "aggregator.h"
 #include "server.h"
 #include "relay.h"
 
+
+#if __linux
+typedef struct timespec clocktime_t;
+#define clocktime(X) do { clock_gettime(CLOCK_MONOTONIC, X); } while (0)
+#define timediff(X, Y) \
+	(Y.tv_sec > X.tv_sec ? (Y.tv_sec - X.tv_sec) * 1000 * 1000 + ((Y.tv_nsec - X.tv_nsec) / 1000) : (Y.tv_nsec - X.tv_nsec) / 1000)
+#else
+typedef struct timeval clocktime_t;
+#define clocktime(X) do { gettimeofday(X, NULL); } while (0)
 #define timediff(X, Y) \
 	(Y.tv_sec > X.tv_sec ? (Y.tv_sec - X.tv_sec) * 1000 * 1000 + ((Y.tv_usec - X.tv_usec)) : Y.tv_usec - X.tv_usec)
+#endif
 
 void collector_start(dispatcher **d, router *rtr, server *submission, char cum);
 void collector_stop(void);

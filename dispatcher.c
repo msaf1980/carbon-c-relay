@@ -147,7 +147,7 @@ struct _dispatcher {
 	char tags_supported;
 	int maxinplen;
 	int maxmetriclen;
-	struct timeval stop;
+	clocktime_t stop;
 };
 
 struct _connection {
@@ -162,7 +162,7 @@ struct _connection {
 	char metric[METRIC_BUFSIZ];
 	destination dests[CONN_DESTS_SIZE];
 	size_t destlen;
-	struct timeval lastwork;
+	clocktime_t lastwork;
 	unsigned int maxsenddelay;
 	char needmore:1;
 	char noexpire:1;
@@ -544,7 +544,7 @@ sslclose(z_strm *strm)
 
 static void dispatch_closeconnection(dispatcher *d, connection *conn, ssize_t len);
 static void dispatch_releaseconnection(int sock);
-static int dispatch_connection(connection *conn, dispatcher *self, struct timeval start);
+static int dispatch_connection(connection *conn, dispatcher *self, clocktime_t now);
 
 /*
  * Shutdown command
@@ -567,9 +567,9 @@ void dispatch_read_cb(int fd, short flags, void *arg)
 {
 	connection *conn = (connection *) arg;
 	dispatcher *d  = conn->d;
-	struct timeval start;
+	clocktime_t start;
 
-	gettimeofday(&start, NULL);
+	clocktime(&start);
 	__sync_add_and_fetch(&(d->sleeps), timediff(d->stop, start));
 	if (flags & EV_TIMEOUT) {
 		__sync_lock_test_and_set(&(conn->takenby), conn->d->id);
@@ -587,7 +587,7 @@ void dispatch_read_cb(int fd, short flags, void *arg)
 		dispatch_connection(conn, conn->d, start);
 	}
 
-	gettimeofday(&d->stop, NULL);
+	clocktime(&d->stop);
 	__sync_add_and_fetch(&(d->ticks), timediff(start, d->stop));
 }
 
@@ -598,9 +598,9 @@ void dispatch_accept_cb(int fd, short flags, void *arg)
     int client;
 	struct sockaddr addr;
 	socklen_t addrlen = sizeof(addr);
-	struct timeval start;
+	clocktime_t start;
 
-	gettimeofday(&start, NULL);
+	clocktime(&start);
 	__sync_add_and_fetch(&(d->sleeps), timediff(d->stop, start));
 	if ((client = accept(lsock->sock, &addr, &addrlen)) < 0)
 	{
@@ -617,7 +617,7 @@ void dispatch_accept_cb(int fd, short flags, void *arg)
 		(void) fcntl(client, F_SETFL, O_NONBLOCK);
 		dispatch_addconnection(client, lsock->lsnr, dispatch_worker_with_low_connections(), 0, 0);
 	}
-	gettimeofday(&d->stop, NULL);
+	clocktime(&d->stop);
 	__sync_add_and_fetch(&(d->ticks), timediff(start, d->stop));
 }
 
@@ -1195,7 +1195,7 @@ dispatch_addconnection(int sock, listener *lsnr, dispatcher *d, char is_aggr, ch
 		conn->isudp = 1;
 	}
 	conn->destlen = 0;
-	gettimeofday(&conn->lastwork, NULL);
+	clocktime(&conn->lastwork);
 	/* after this dispatchers will pick this connection up */
 	__sync_bool_compare_and_swap(&(conn->takenby), C_SETUP, C_IN);
 	conn->ev = NULL;
@@ -1243,7 +1243,7 @@ static int rand2()
 }
 
 inline static char
-dispatch_process_dests(connection *conn, dispatcher *self, struct timeval now)
+dispatch_process_dests(connection *conn, dispatcher *self, clocktime_t now)
 {
 	int i;
 	char force;
@@ -1340,7 +1340,7 @@ dispatch_received_metrics(connection *conn, dispatcher *self)
 			firstspace = NULL;
 			search_tags = self->tags_supported;
 
-			gettimeofday(&conn->lastwork, NULL);
+			clocktime(&conn->lastwork);
 			conn->maxsenddelay = 0;
 			/* send the metric to where it is supposed to go */
 			if (dispatch_process_dests(conn, self, conn->lastwork) == 0)
@@ -1461,7 +1461,7 @@ dispatch_closeconnection(dispatcher *d, connection *conn, ssize_t len)
  *        -1 - can retry
  */
 static int
-dispatch_connection(connection *conn, dispatcher *self, struct timeval start)
+dispatch_connection(connection *conn, dispatcher *self, clocktime_t start)
 {
 	ssize_t len;
 	int err;
@@ -1628,7 +1628,7 @@ dispatch_new(
 	ret->prevticks = 0;
 	ret->prevsleeps = 0;
 
-	gettimeofday(&ret->stop, NULL);
+	clocktime(&ret->stop);
 
 	return ret;
 }

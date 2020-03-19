@@ -1210,7 +1210,7 @@ server_queuereader(void *d)
 	server *self = (server *)d;
 	char idle = 0;
 	size_t qsize = queue_size(self->queue);
-	struct timeval start, stop;
+	clocktime_t start, stop;
 
 	char shutdown = 0;
 	ssize_t timeout = shutdown_timeout * 1000000;
@@ -1220,10 +1220,10 @@ server_queuereader(void *d)
 	self->alive = 1;
 
 	while (!shutdown) {
-		gettimeofday(&start, NULL);
+		clocktime(&start);
 		shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
 		ret = server_queueread(self, qsize, &idle, shutdown);
-		gettimeofday(&stop, NULL);
+		clocktime(&stop);
 		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
 		if (ret <= 0) {
 			/* nothing to do or error, so slow down for a bit
@@ -1237,10 +1237,10 @@ server_queuereader(void *d)
 	}
 
 	while (1) {
-		gettimeofday(&start, NULL);
+		clocktime(&start);
 		__sync_bool_compare_and_swap(&(self->alive), 0, 1);
 		ret = server_queueread(self, qsize, &idle, shutdown);
-		gettimeofday(&stop, NULL);
+		clocktime(&stop);
 		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
 		if (ret == 0) {
 			__sync_bool_compare_and_swap(&(self->alive), 1, 0);
@@ -1269,7 +1269,7 @@ server_queuereader(void *d)
 			 * TODO replace with poll-like model */
 			usleep((300 + (rand() % 100)) * 1000);  /* 300ms - 400ms */
 		}
-		gettimeofday(&stop, NULL);
+		clocktime(&stop);
 		timeout -= timediff(start, stop);
 		if (timeout <= 0) {
 			break;
