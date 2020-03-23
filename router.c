@@ -2459,6 +2459,8 @@ router_shutdown(router *rtr)
 
 	for (s = rtr->srvrs; s != NULL; s = s->next)
 		server_shutdown(s->server);
+	for (s = rtr->srvrs; s != NULL; s = s->next)
+		server_shutdown_wait(s->server);
 }
 
 /**

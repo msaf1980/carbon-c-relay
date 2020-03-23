@@ -392,6 +392,9 @@ do_usage(char *name, int exitcode)
 	printf("  -w  use <workers> worker threads, defaults to %d\n", get_cores());
 	printf("  -b  server send batch size, defaults to %d\n", batchsize);
 	printf("  -q  server queue size, defaults to %d\n", queuesize);
+	printf("  -F  server queue free size threshold (for end rebalance) (pcnt), defaults to %d\n", queuefree_threshold_end);
+	printf("  -S  server queue free size threshold (for start rebalance) (pcnt), defaults to %d\n", queuefree_threshold_start);
+	printf("  -W  server shutdown timeout in seconds, defaults to %d\n", shutdown_timeout);
 	printf("  -L  server max stalls, defaults to %d\n", maxstalls);
 #ifdef HAVE_SSL
 	printf("  -C  use CA <cert> to verify SSL connections\n");
@@ -441,7 +444,7 @@ main(int argc, char * const argv[])
 		snprintf(relay_hostname, sizeof(relay_hostname), "127.0.0.1");
 
 	while ((ch = getopt(argc, argv,
-					":hvdstf:l:p:w:b:q:L:C:T:c:m:M:H:B:U:EDP:O:")) != -1)
+					":hvdstf:F:S:W:l:p:w:b:q:L:C:T:c:m:M:H:B:U:EDP:O:")) != -1)
 	{
 		switch (ch) {
 			case 'v':
@@ -502,6 +505,20 @@ main(int argc, char * const argv[])
 					do_usage(argv[0], 1);
 				}
 				break;
+			case 'S':
+				queuefree_threshold_start = atoi(optarg);
+				break;
+			case 'F':
+				queuefree_threshold_end = atoi(optarg);
+				break;
+			case 'W': {
+				int val = atoi(optarg);
+				if (val <= 0) {
+					fprintf(stderr, "error: shutdown timeout needs to be a number >=0\n");
+					do_usage(argv[0], 1);
+				}
+				shutdown_timeout = val;
+			} break;
 			case 'L':
 				maxstalls = atoi(optarg);
 				if (maxstalls < 0 || maxstalls >= (1 << SERVER_STALL_BITS)) {
@@ -627,6 +644,29 @@ main(int argc, char * const argv[])
 	if (optind == 1 || config == NULL)
 		do_usage(argv[0], 1);
 
+	if (queuefree_threshold_start < 0 || queuefree_threshold_start > 100 ||
+		queuefree_threshold_end < 0 || queuefree_threshold_end > 100) {
+		fprintf(stderr, "error: queue threshold needs to be a number >=0 and <=100\n");
+		queuefree_threshold_end = 0;
+		queuefree_threshold_start = 0;
+		do_usage(argv[0], 1);
+	}
+	if (queuefree_threshold_start == 0) {
+		queuefree_threshold_start = 2 * batchsize;
+	} else {
+		queuefree_threshold_start = (double) queuefree_threshold_start * queuesize / 100;
+	}
+	if (queuefree_threshold_end == 0) {
+		queuefree_threshold_end = 3 * batchsize;
+	} else {
+		queuefree_threshold_end = (double) queuefree_threshold_end * queuesize / 100;
+	}
+	if (queuefree_threshold_end <= queuefree_threshold_start) {
+		fprintf(stderr, "error: queue threshold end needs to be greater than queue threshold  start\n");
+		queuefree_threshold_end = 0;
+		queuefree_threshold_start = 0;
+		do_usage(argv[0], 1);
+	}
 
 	/* seed randomiser for dispatcher and aggregator "splay" */
 	srand(time(NULL));

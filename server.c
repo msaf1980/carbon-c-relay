@@ -54,6 +54,14 @@
 #include <openssl/err.h>
 #endif
 
+#define FAIL_WAIT_TIME   6  /* 6 * 250ms = 1.5s */
+#define DISCONNECT_WAIT_TIME   12  /* 12 * 250ms = 3s */
+#define QUEUE_FREE_CRITICAL(FREE, s)  (FREE < s->qfree_threshold)
+
+int queuefree_threshold_start = 0;
+int queuefree_threshold_end = 0;
+int shutdown_timeout = 120; /* 120s */
+
 typedef struct _z_strm {
 	ssize_t (*strmwrite)(struct _z_strm *, const void *, size_t);
 	int (*strmflush)(struct _z_strm *);
@@ -82,6 +90,7 @@ typedef struct _z_strm {
 	} hdl;
 } z_strm;
 
+
 struct _server {
 	const char *ip;
 	unsigned short port;
@@ -93,6 +102,7 @@ struct _server {
 	z_strm *strm;
 	queue *queue;
 	size_t bsize;
+	size_t qfree_threshold;
 	short iotimeout;
 	unsigned int sockbufsize;
 	unsigned char maxstalls:SERVER_STALL_BITS;
@@ -102,9 +112,11 @@ struct _server {
 	con_proto ctype;
 	pthread_t tid;
 	struct _server **secondaries;
+	size_t *secpos;
 	size_t secondariescnt;
 	char failover:1;
 	char failure;       /* full byte for atomic access */
+	char alive;       /* full byte for atomic access */
 	char running;       /* full byte for atomic access */
 	char keep_running;  /* full byte for atomic access */
 	unsigned char stallseq;  /* full byte for atomic access */
@@ -112,10 +124,12 @@ struct _server {
 	size_t dropped;
 	size_t stalls;
 	size_t ticks;
+	size_t requeue;
 	size_t prevmetrics;
 	size_t prevdropped;
 	size_t prevstalls;
 	size_t prevticks;
+	size_t prevrequeue;
 };
 
 
@@ -357,7 +371,6 @@ lzflush(z_strm *strm)
 static inline int
 lzclose(z_strm *strm)
 {
-	lzflush(strm);
 	free(strm->hdl.z.cbuf);
 	return strm->nextstrm->strmclose(strm->nextstrm);
 }
@@ -556,6 +569,633 @@ size_t server_metrics_in_buffer(server *s) {
 	return count;
 }
 
+char server_connect(server *self)
+{
+	struct timeval timeout;
+	if (self->reresolve) {  /* can only be CON_UDP/CON_TCP */
+		struct addrinfo *saddr;
+		char sport[8];
+
+		/* re-lookup the address info, if it fails, stay with
+		 * whatever we have such that resolution errors incurred
+		 * after starting the relay won't make it fail */
+		freeaddrinfo(self->saddr);
+		snprintf(sport, sizeof(sport), "%u", self->port);
+		if (getaddrinfo(self->ip, sport, self->hint, &saddr) == 0) {
+			self->saddr = saddr;
+		} else {
+			if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+				logerr("failed to resolve %s:%u, server unavailable\n",
+						self->ip, self->port);
+			self->saddr = NULL;
+			/* this will break out below */
+		}
+	}
+
+	if (self->ctype == CON_PIPE) {
+		int intconn[2];
+		connection *conn;
+		if (pipe(intconn) < 0) {
+			if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+				logerr("failed to create pipe: %s\n", strerror(errno));
+			return -1;
+		}
+		conn = dispatch_addconnection(intconn[0], NULL, dispatch_worker_with_low_connections(), 0, 1);
+		if (conn == NULL) {
+			if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+				logerr("failed to add pipe: %s\n", strerror(errno));
+			return -1;
+		}
+		self->fd = intconn[1];
+	} else if (self->ctype == CON_FILE) {
+		if ((self->fd = open(self->ip,
+						O_WRONLY | O_APPEND | O_CREAT,
+						S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) < 0)
+		{
+			if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+				logerr("failed to open file '%s': %s\n",
+						self->ip, strerror(errno));
+			return -1;
+		}
+	} else if (self->ctype == CON_UDP) {
+		struct addrinfo *walk;
+
+		for (walk = self->saddr; walk != NULL; walk = walk->ai_next) {
+			if ((self->fd = socket(walk->ai_family,
+							walk->ai_socktype,
+							walk->ai_protocol)) < 0)
+			{
+				if (walk->ai_next == NULL &&
+						__sync_fetch_and_add(&(self->failure), 1) == 0)
+					logerr("failed to create udp socket: %s\n",
+							strerror(errno));
+				return -1;
+			}
+			if (connect(self->fd, walk->ai_addr, walk->ai_addrlen) < 0)
+			{
+				if (walk->ai_next == NULL &&
+						__sync_fetch_and_add(&(self->failure), 1) == 0)
+					logerr("failed to connect udp socket: %s\n",
+							strerror(errno));
+				close(self->fd);
+				self->fd = -1;
+				return -1;
+			}
+
+			/* we made it up here, so this connection is usable */
+			break;
+		}
+		/* if this didn't resolve to anything, treat as failure */
+		if (self->saddr == NULL)
+			__sync_add_and_fetch(&(self->failure), 1);
+		/* if all addrinfos failed, try again later */
+		if (self->fd < 0)
+			return -1;
+	} else {  /* CON_TCP */
+		int ret;
+		int args;
+		struct addrinfo *walk;
+
+		for (walk = self->saddr; walk != NULL; walk = walk->ai_next) {
+			if ((self->fd = socket(walk->ai_family,
+							walk->ai_socktype,
+							walk->ai_protocol)) < 0)
+			{
+				if (walk->ai_next == NULL &&
+						__sync_fetch_and_add(&(self->failure), 1) == 0)
+					logerr("failed to create socket: %s\n",
+							strerror(errno));
+				return -1;
+			}
+
+			/* put socket in non-blocking mode such that we can
+			 * poll() (time-out) on the connect() call */
+			args = fcntl(self->fd, F_GETFL, NULL);
+			if (fcntl(self->fd, F_SETFL, args | O_NONBLOCK) < 0) {
+				logerr("failed to set socket non-blocking mode: %s\n",
+						strerror(errno));
+				close(self->fd);
+				self->fd = -1;
+				return -1;
+			}
+			ret = connect(self->fd, walk->ai_addr, walk->ai_addrlen);
+
+			if (ret < 0 && errno == EINPROGRESS) {
+				/* wait for connection to succeed if the OS thinks
+				 * it can succeed */
+				struct pollfd ufds[1];
+				ufds[0].fd = self->fd;
+				ufds[0].events = POLLIN | POLLOUT;
+				ret = poll(ufds, 1, self->iotimeout + (rand2() % 100));
+				if (ret == 0) {
+					/* time limit expired */
+					if (walk->ai_next == NULL &&
+							__sync_fetch_and_add(
+								&(self->failure), 1) == 0)
+						logerr("failed to connect() to "
+								"%s:%u: Operation timed out\n",
+								self->ip, self->port);
+					close(self->fd);
+					self->fd = -1;
+					return -1;
+				} else if (ret < 0) {
+					/* some select error occurred */
+					if (walk->ai_next &&
+							__sync_fetch_and_add(
+								&(self->failure), 1) == 0)
+						logerr("failed to poll() for %s:%u: %s\n",
+								self->ip, self->port, strerror(errno));
+					close(self->fd);
+					self->fd = -1;
+					return -1;
+				} else {
+					if (ufds[0].revents & POLLHUP) {
+						if (walk->ai_next == NULL &&
+								__sync_fetch_and_add(
+									&(self->failure), 1) == 0)
+							logerr("failed to connect() for %s:%u: "
+									"Connection refused\n",
+									self->ip, self->port);
+						close(self->fd);
+						self->fd = -1;
+						return -1;
+					}
+					/*
+					int valopt;
+					socklen_t lon = sizeof(int);
+					if (getsockopt(self->fd, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon) < 0) {
+						logerr("failed in getsockopt() %s:%u: %s\n", self->ip, self->port, strerror(errno));
+						continue;
+					}
+					if (valopt) {
+					   logerr("failed delayed connect() %s:%d - %s\n", self->ip, self->port, strerror(valopt));
+					   exit(0);
+					}
+					*/
+				}
+			} else if (ret < 0) {
+				if (walk->ai_next == NULL &&
+						__sync_fetch_and_add(&(self->failure), 1) == 0)
+				{
+					logerr("failed to connect() to %s:%u: %s\n",
+							self->ip, self->port, strerror(errno));
+					dispatch_check_rlimit_and_warn();
+				}
+				close(self->fd);
+				self->fd = -1;
+				return -1;
+			}
+
+			/* make socket blocking again */
+			if (fcntl(self->fd, F_SETFL, args) < 0) {
+				logerr("failed to remove socket non-blocking "
+						"mode: %s\n", strerror(errno));
+				close(self->fd);
+				self->fd = -1;
+				return -1;
+			}
+
+			/* disable Nagle's algorithm, issue #208 */
+			args = 1;
+			if (setsockopt(self->fd, IPPROTO_TCP, TCP_NODELAY,
+						&args, sizeof(args)) != 0)
+				; /* ignore */
+
+#ifdef TCP_USER_TIMEOUT
+			/* break out of connections when no ACK is being
+			 * received for +- 10 seconds instead of
+			 * retransmitting for +- 15 minutes available on
+			 * linux >= 2.6.37
+			 * the 10 seconds is in line with the SO_SNDTIMEO
+			 * set on the socket below */
+			args = 10000 + (rand() % 300);
+			if (setsockopt(self->fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
+						&args, sizeof(args)) != 0)
+				; /* ignore */
+#endif
+
+			/* if we reached up here, we're good to go, so don't
+			 * continue with the other addrinfos */
+			break;
+		}
+		/* if this didn't resolve to anything, treat as failure */
+		if (self->saddr == NULL)
+			__sync_add_and_fetch(&(self->failure), 1);
+		/* all available addrinfos failed on us */
+		if (self->fd < 0)
+			return -1;
+	}
+
+	/* ensure we will break out of connections being stuck more
+	 * quickly than the kernel would give up */
+	timeout.tv_sec = 10;
+	timeout.tv_usec = (rand2() % 300) * 1000;
+	if (setsockopt(self->fd, SOL_SOCKET, SO_SNDTIMEO,
+				&timeout, sizeof(timeout)) != 0)
+		; /* ignore */
+	if (self->sockbufsize > 0)
+		if (setsockopt(self->fd, SOL_SOCKET, SO_SNDBUF,
+					&self->sockbufsize, sizeof(self->sockbufsize)) != 0)
+			; /* ignore */
+
+	self->strm->obuflen = 0;
+#ifdef SO_NOSIGPIPE
+	if (self->ctype == CON_TCP || self->ctype == CON_UDP) {
+		int enable = 1;
+		if (setsockopt(self->fd, SOL_SOCKET, SO_NOSIGPIPE,
+					(void *)&enable, sizeof(enable)) != 0)
+			logout("warning: failed to ignore SIGPIPE on socket: %s\n",
+					strerror(errno));
+	}
+#endif
+
+#ifdef HAVE_GZIP
+	if ((self->transport & 0xFFFF) == W_GZIP) {
+		self->strm->hdl.gz = malloc(sizeof(z_stream));
+		if (self->strm->hdl.gz != NULL) {
+			self->strm->hdl.gz->zalloc = Z_NULL;
+			self->strm->hdl.gz->zfree = Z_NULL;
+			self->strm->hdl.gz->opaque = Z_NULL;
+			self->strm->hdl.gz->next_in = Z_NULL;
+		}
+		if (self->strm->hdl.gz == NULL ||
+				deflateInit2(self->strm->hdl.gz,
+					Z_DEFAULT_COMPRESSION,
+					Z_DEFLATED,
+					15 + 16,
+					8,
+					Z_DEFAULT_STRATEGY) != Z_OK)
+		{
+			__sync_add_and_fetch(&(self->failure), 1);
+			logerr("failed to open gzip stream: out of memory\n");
+			close(self->fd);
+			self->fd = -1;
+			return -1;
+		}
+	}
+#endif
+#ifdef HAVE_LZ4
+	if ((self->transport & 0xFFFF) == W_LZ4) {
+		self->strm->obuflen = 0;
+
+		/* get the maximum size that should ever be required and allocate for it */
+
+		self->strm->hdl.z.cbuflen = LZ4F_compressFrameBound(sizeof(self->strm->obuf), NULL);
+		if ((self->strm->hdl.z.cbuf = malloc(self->strm->hdl.z.cbuflen)) == NULL) {
+			__sync_add_and_fetch(&(self->failure), 1);
+			logerr("Failed to allocate %lu bytes for compressed LZ4 data\n", self->strm->hdl.z.cbuflen);
+			close(self->fd);
+			self->fd = -1;
+			return -1;
+		}
+	}
+#endif
+#ifdef HAVE_SSL
+	if ((self->transport & ~0xFFFF) == W_SSL) {
+		int rv;
+		z_strm *sstrm;
+
+		if ((self->transport & 0xFFFF) == W_PLAIN) { /* just SSL, nothing else */
+			sstrm = self->strm;
+		} else {
+			sstrm = self->strm->nextstrm;
+		}
+
+		sstrm->hdl.ssl = SSL_new(sstrm->ctx);
+		SSL_set_tlsext_host_name(sstrm->hdl.ssl, self->ip);
+		if (SSL_set_fd(sstrm->hdl.ssl, self->fd) == 0) {
+			__sync_add_and_fetch(&(self->failure), 1);
+			logerr("failed to SSL_set_fd: %s\n",
+					ERR_reason_error_string(ERR_get_error()));
+			sstrm->strmclose(sstrm);
+			self->fd = -1;
+			return -1;
+		}
+		if ((rv = SSL_connect(sstrm->hdl.ssl)) != 1) {
+			__sync_add_and_fetch(&(self->failure), 1);
+			logerr("failed to connect ssl stream: %s\n",
+					sslerror(sstrm, rv));
+			sstrm->strmclose(sstrm);
+			self->fd = -1;
+			return -1;
+		}
+		if ((rv = SSL_get_verify_result(sstrm->hdl.ssl)) != X509_V_OK) {
+			__sync_add_and_fetch(&(self->failure), 1);
+			logerr("failed to verify ssl certificate: %s\n",
+					sslerror(sstrm, rv));
+			sstrm->strmclose(sstrm);
+			self->fd = -1;
+			return -1;
+		}
+	} else
+#endif
+	{
+		z_strm *pstrm;
+
+		if (self->transport == W_PLAIN) { /* just plain socket */
+			pstrm = self->strm;
+		} else {
+			pstrm = self->strm->nextstrm;
+		}
+		pstrm->hdl.sock = self->fd;
+	}
+	return self->fd;
+}
+
+static inline int server_secpos_alloc(server *self)
+{
+	int i;
+	self->secpos = malloc(sizeof(size_t) * self->secondariescnt);
+	if (self->secpos == NULL) {
+		logerr("server: failed to allocate memory "
+				"for secpos\n");
+		return -1;
+	}
+	for (i = 0; i < self->secondariescnt; i++)
+		self->secpos[i] = i;
+	return 0;
+}
+
+static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shutdown)
+{
+	size_t len;
+	ssize_t slen;
+	const char **p;
+	queue *squeue;
+	size_t qfree;
+	const char **metric = self->batch;
+	*metric = NULL;
+
+	qfree = queue_free(self->queue);
+	if (self->secondariescnt > 0 && self->qfree_threshold != queuefree_threshold_start && ! QUEUE_FREE_CRITICAL(qfree, self)) {
+		/* threshold for cancel rebalance */
+		self->qfree_threshold = queuefree_threshold_start;
+		if (mode && MODE_DEBUG)
+			tracef("throttle end %s:%u: waiting for %zu metrics\n",
+					self->ip, self->port, queue_len(self->queue));
+	}
+	if (qfree == qsize) {
+		/* if we're idling, close the TCP connection, this allows us
+		 * to reduce connections, while keeping the connection alive
+		 * if we're writing a lot */
+		if (self->ctype == CON_TCP && self->fd >= 0 &&
+				*idle++ > DISCONNECT_WAIT_TIME)
+		{
+			self->strm->strmclose(self->strm);
+			self->fd = -1;
+		}
+		if (*idle == 1)
+			/* ensure blocks are pushed out as soon as we're idling,
+			 * this allows compressors to benefit from a larger
+			 * stream of data to gain better compression */
+			self->strm->strmflush(self->strm);
+		/* if we are in failure mode, keep checking if we can
+		 * connect, this avoids unnecessary queue moves */
+		if (self->secondariescnt == 0)
+			return 0;
+		else {
+			int i;
+			int queued = 0;
+			for (i = 0; i < self->secondariescnt; i++) {
+				if (self != self->secondaries[i] && queue_len(self->secondaries[i]->queue) > 0) {
+					queued = 1;
+					break;
+				}
+			}
+			if (queued == 0) {
+				return 0;
+			}
+		}
+	} else if (self->secondariescnt > 0 &&
+			   (__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
+				QUEUE_FREE_CRITICAL(qfree, self)||
+				shutdown))
+	{
+		size_t i;
+		size_t req = 0;
+
+		if (self->secondariescnt > 0) {
+			if (!self->failover) {
+				/* randomise the failover list such that in the
+				 * grand scheme of things we don't punish the first
+				 * working server in the list to deal with all
+				 * traffic meant for a now failing server */
+				for (i = 0; i < self->secondariescnt; i++) {
+					size_t n = rand2() % (self->secondariescnt - i);
+					if (n != i) {
+						size_t t = self->secpos[n];
+						self->secpos[n] = self->secpos[i];
+						self->secpos[i] = t;
+					}
+				}
+			}
+		}
+
+		if (self->qfree_threshold == queuefree_threshold_start && QUEUE_FREE_CRITICAL(qfree, self)) {
+			/* destination overloaded, set threshold for destination recovery */
+			self->qfree_threshold = queuefree_threshold_end;
+			if (mode && MODE_DEBUG)
+				tracef("throttle %s:%u: waiting for %zu metrics\n",
+						self->ip, self->port, queue_len(self->queue));
+		}
+
+		/* offload data from our queue to our secondaries
+		 * when doing so, observe the following:
+		 * - avoid nodes that are in failure mode
+		 * - avoid nodes which queues are >= critical_len
+		 * when no nodes remain given the above
+		 * - send to nodes which queue size < critical_len
+		 * where there are no such nodes
+		 * - do nothing (we will overflow, since we can't send
+		 *   anywhere) */
+		*metric = NULL;
+		squeue = NULL;
+		for (i = 0; i < self->secondariescnt; i++) {
+			/* both conditions below make sure we skip ourself */
+			if (self == self->secondaries[self->secpos[i]] ||
+				__sync_add_and_fetch(&(self->secondaries[self->secpos[i]]->failure), 0))
+				continue;
+			squeue = self->secondaries[self->secpos[i]]->queue;
+			if (!self->failover && self->fd > 0) {
+				size_t sqfree = queue_free(squeue);
+				if (sqfree <= qfree + 10 *self->bsize ) {
+					squeue = NULL;
+					continue;
+				}
+			}
+			if (shutdown) {
+				logerr("shutting down %s:%u: waiting for requeue %zu metrics to %s:%u\n",
+						self->ip, self->port, queue_len(self->queue),
+						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
+			}
+			/* send up to batch size of our queue to this queue */
+			len = queue_dequeue_vector(
+					self->batch, self->queue, self->bsize);
+			self->batch[len] = NULL;
+			metric = self->batch;
+
+			for (; *metric != NULL; metric++) {
+				if (!queue_putback(squeue, *metric))
+					break;
+				req++;
+			}
+			/* try to put back stuff that didn't fit */
+			for (; *metric != NULL; metric++)
+				if (!queue_putback(self->queue, *metric))
+					break;
+		}
+		__sync_add_and_fetch(&(self->requeue), req);
+		for (; *metric != NULL; metric++) {
+			if (mode & MODE_DEBUG)
+				logerr("dropping metric: %s", *metric);
+			free((char *)*metric);
+			__sync_add_and_fetch(&(self->dropped), 1);
+		}
+		if (req == 0) {
+			/* we couldn't do anything, take it easy for a bit */
+			if (__sync_add_and_fetch(&(self->failure), 0) > 1) {
+				/* This is a compound because I can't seem to figure
+				 * out how to atomically just "set" a variable.
+				 * It's not bad when in the middle there is a ++,
+				 * all that counts is that afterwards its > 0. */
+				__sync_and_and_fetch(&(self->failure), 0);
+				__sync_add_and_fetch(&(self->failure), 1);
+			}
+		} else if (QUEUE_FREE_CRITICAL(qfree, self) && !shutdown) {
+			/* skip overloaded destination, if secondaries exist */
+			return -1;
+		}
+	} else if (__sync_add_and_fetch(&(self->failure), 0) > FAIL_WAIT_TIME) {
+		/* avoid overflowing */
+		__sync_sub_and_fetch(&(self->failure), 1);
+	}
+	/* at this point we've got work to do, if we're instructed to
+	 * shut down, however, try to get everything out of the door
+	 * (until we fail, see top of this loop) */
+
+	/* try to connect */
+	if (self->fd < 0) {
+		if (server_connect(self) == -1) {
+			return -1;
+		}
+	}
+
+	/* send up to batch size */
+	if (qfree == qsize) {
+		if (self->secondariescnt > 0) {
+			int i;
+			squeue = NULL;
+			for (i = 0; i < self->secondariescnt; i++) {
+				/* both conditions below make sure we skip ourself */
+				squeue = self->secondaries[self->secpos[i]]->queue;
+				if (queue_len(squeue) == 0) {
+					return 0;
+				} else {
+					break;
+				}
+			}
+			if (squeue == NULL)
+				return 0;
+			if (shutdown) {
+				/* be noisy during shutdown so we can track any slowing down
+				 * servers, possibly preventing us to shut down */
+				logerr("shutting down %s:%u: waiting for %zu metrics from %s:%u\n",
+						self->ip, self->port, queue_len(self->queue),
+						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
+			}
+			len = queue_dequeue_vector(self->batch, squeue, self->bsize);
+		} else {
+			return 0;
+		}
+	} else {
+		if (shutdown) {
+			/* be noisy during shutdown so we can track any slowing down
+			 * servers, possibly preventing us to shut down */
+			logerr("shutting down %s:%u: waiting for %zu metrics\n",
+					self->ip, self->port, queue_len(self->queue));
+		}
+		len = queue_dequeue_vector(self->batch, self->queue, self->bsize);
+	}
+	self->batch[len] = NULL;
+	metric = self->batch;
+
+	if (len == 0 && __sync_add_and_fetch(&(self->failure), 0)) {
+		/* if we don't have anything to send, we have at least a
+		 * connection succeed, so assume the server is up again,
+		 * this is in particular important for recovering this
+		 * node by probes, to avoid starvation of this server since
+		 * its queue is possibly being offloaded to secondaries */
+		if (self->ctype != CON_UDP)
+			logerr("server %s:%u: OK after probe\n", self->ip, self->port);
+		__sync_and_and_fetch(&(self->failure), 0);
+	} else if (len != 0) {
+		for (; *metric != NULL; metric++) {
+			size_t mlen = *(size_t *)(*metric);
+			const char *m = *metric + sizeof(size_t);
+			if ((slen = self->strm->strmwrite(self->strm, m, mlen)) != mlen) {
+				/* not fully sent (after tries), or failure
+				 * close connection regardless so we don't get
+				 * synchonisation problems */
+				if (self->ctype != CON_UDP &&
+						__sync_fetch_and_add(&(self->failure), 1) == 0)
+					logerr("failed to write() to %s:%u: %s\n",
+							self->ip, self->port,
+							(slen < 0 ?
+							 self->strm->strmerror(self->strm, slen) :
+							 "incomplete write"));
+				self->strm->strmclose(self->strm);
+				self->fd = -1;
+				break;
+			} else if (!__sync_bool_compare_and_swap(&(self->failure), 0, 0)) {
+				if (self->ctype != CON_UDP)
+					logerr("server %s:%u: OK\n", self->ip, self->port);
+				__sync_and_and_fetch(&(self->failure), 0);
+			}
+			__sync_add_and_fetch(&(self->metrics), 1);
+
+		}
+		/* Flush stream */
+		if (self->fd > 0 && (slen = self->strm->strmflush(self->strm)) < 0) {
+			if (__sync_fetch_and_add(&(self->failure), 1) == 0)
+				logerr("failed to write() to %s:%u: %s\n",
+						self->ip, self->port,
+						(slen < 0 ?
+						 self->strm->strmerror(self->strm, slen) :
+						 "incomplete write"));
+			self->strm->strmclose(self->strm);
+			self->fd = -1;
+		}
+
+		/* reset metric location for requeue metrics from possible unsended buffer
+		 * can duplicate already sended message
+		 */
+		metric -= server_metrics_in_buffer(self);
+		self->strm->obuflen = 0;
+		/* free sended metrics */
+		for (p = self->batch; p != metric && *p != NULL; p++) {
+			free((char *)*p);
+		}
+		/* put back stuff we couldn't process */
+		for (; *metric != NULL; metric++) {
+			if (!queue_putback(self->queue, *metric)) {
+				if (mode & MODE_DEBUG)
+					logerr("server %s:%u: dropping metric: %s",
+							self->ip, self->port,
+							*metric + sizeof(size_t));
+				free((char *)*metric);
+				__sync_add_and_fetch(&(self->dropped), 1);
+			}
+		}
+	}
+
+	*idle = 0;
+
+	if (self->fd == -1)
+		return -1;
+	else
+		return len;
+}
+
 /**
  * Reads from the queue and sends items to the remote server.  This
  * function is designed to be a thread.  Data sending is attempted to be
@@ -568,593 +1208,80 @@ static void *
 server_queuereader(void *d)
 {
 	server *self = (server *)d;
-	size_t len;
-	ssize_t slen;
-	const char **metric = self->batch;
-	struct timeval start, stop;
-	struct timeval timeout;
-	queue *squeue;
 	char idle = 0;
-	size_t *secpos = NULL;
-	unsigned char cnt;
+	size_t qsize = queue_size(self->queue);
+	struct timeval start, stop;
 
-	*metric = NULL;
+	char shutdown = 0;
+	ssize_t timeout = shutdown_timeout * 1000000;
+	ssize_t ret;
 
-#define FAIL_WAIT_TIME   6  /* 6 * 250ms = 1.5s */
-#define DISCONNECT_WAIT_TIME   12  /* 12 * 250ms = 3s */
-#define LEN_CRITICAL(Q)  (queue_free(Q) < self->bsize)
 	self->running = 1;
-	while (1) {
-		if (queue_len(self->queue) == 0) {
-			/* if we're idling, close the TCP connection, this allows us
-			 * to reduce connections, while keeping the connection alive
-			 * if we're writing a lot */
-			gettimeofday(&start, NULL);
-			if (self->ctype == CON_TCP && self->fd >= 0 &&
-					idle++ > DISCONNECT_WAIT_TIME)
-			{
-				self->strm->strmclose(self->strm);
-				self->fd = -1;
-			}
-			if (idle == 1)
-				/* ensure blocks are pushed out as soon as we're idling,
-				 * this allows compressors to benefit from a larger
-				 * stream of data to gain better compression */
-				self->strm->strmflush(self->strm);
-			gettimeofday(&stop, NULL);
-			__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
-			if (__sync_bool_compare_and_swap(&(self->keep_running), 0, 0))
-				break;
-			/* nothing to do, so slow down for a bit */
-			usleep((200 + (rand() % 100)) * 1000);  /* 200ms - 300ms */
-			/* if we are in failure mode, keep checking if we can
-			 * connect, this avoids unnecessary queue moves */
-			if (__sync_bool_compare_and_swap(&(self->failure), 0, 0))
-				/* it makes no sense to try and do something, so skip */
-				continue;
-		} else if (self->secondariescnt > 0 &&
-				(__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
-				 (!self->failover && LEN_CRITICAL(self->queue))))
-		{
-			size_t i;
+	self->alive = 1;
 
-			gettimeofday(&start, NULL);
-			if (self->secondariescnt > 0) {
-				if (secpos == NULL) {
-					secpos = malloc(sizeof(size_t) * self->secondariescnt);
-					if (secpos == NULL) {
-						logerr("server: failed to allocate memory "
-								"for secpos\n");
-						gettimeofday(&stop, NULL);
-						__sync_add_and_fetch(&(self->ticks),
-								timediff(start, stop));
-						continue;
-					}
-					for (i = 0; i < self->secondariescnt; i++)
-						secpos[i] = i;
-				}
-				if (!self->failover) {
-					/* randomise the failover list such that in the
-					 * grand scheme of things we don't punish the first
-					 * working server in the list to deal with all
-					 * traffic meant for a now failing server */
-					for (i = 0; i < self->secondariescnt; i++) {
-						size_t n = rand() % (self->secondariescnt - i);
-						if (n != i) {
-							size_t t = secpos[n];
-							secpos[n] = secpos[i];
-							secpos[i] = t;
-						}
-					}
-				}
-			}
-
-			/* offload data from our queue to our secondaries
-			 * when doing so, observe the following:
-			 * - avoid nodes that are in failure mode
-			 * - avoid nodes which queues are >= critical_len
-			 * when no nodes remain given the above
-			 * - send to nodes which queue size < critical_len
-			 * where there are no such nodes
-			 * - do nothing (we will overflow, since we can't send
-			 *   anywhere) */
-			*metric = NULL;
-			squeue = NULL;
-			for (i = 0; i < self->secondariescnt; i++) {
-				/* both conditions below make sure we skip ourself */
-				if (__sync_add_and_fetch(
-							&(self->secondaries[secpos[i]]->failure), 0))
-					continue;
-				squeue = self->secondaries[secpos[i]]->queue;
-				if (!self->failover && LEN_CRITICAL(squeue)) {
-					squeue = NULL;
-					continue;
-				}
-				if (*metric == NULL) {
-					/* send up to batch size of our queue to this queue */
-					len = queue_dequeue_vector(
-							self->batch, self->queue, self->bsize);
-					self->batch[len] = NULL;
-					metric = self->batch;
-				}
-
-				for (; *metric != NULL; metric++)
-					if (!queue_putback(squeue, *metric))
-						break;
-				/* try to put back stuff that didn't fit */
-				for (; *metric != NULL; metric++)
-					if (!queue_putback(self->queue, *metric))
-						break;
-			}
-			for (; *metric != NULL; metric++) {
-				if (mode & MODE_DEBUG)
-					logerr("dropping metric: %s", *metric);
-				free((char *)*metric);
-				__sync_add_and_fetch(&(self->dropped), 1);
-			}
-			gettimeofday(&stop, NULL);
-			__sync_add_and_fetch(&(self->ticks),
-					timediff(start, stop));
-			if (squeue == NULL) {
-				/* we couldn't do anything, take it easy for a bit */
-				if (__sync_add_and_fetch(&(self->failure), 0) > 1) {
-					/* This is a compound because I can't seem to figure
-					 * out how to atomically just "set" a variable.
-					 * It's not bad when in the middle there is a ++,
-					 * all that counts is that afterwards its > 0. */
-					__sync_and_and_fetch(&(self->failure), 0);
-					__sync_add_and_fetch(&(self->failure), 1);
-				}
-				if (__sync_bool_compare_and_swap(&(self->keep_running), 0, 0))
-					break;
-				usleep((200 + (rand() % 100)) * 1000);  /* 200ms - 300ms */
-			}
-		} else if (__sync_add_and_fetch(&(self->failure), 0) > 0) {
-			if (__sync_bool_compare_and_swap(&(self->keep_running), 0, 0))
-				break;
-			usleep((200 + (rand() % 100)) * 1000);  /* 200ms - 300ms */
-			/* avoid overflowing */
-			if (__sync_add_and_fetch(&(self->failure), 0) > FAIL_WAIT_TIME)
-				__sync_sub_and_fetch(&(self->failure), 1);
-		}
-
-		/* at this point we've got work to do, if we're instructed to
-		 * shut down, however, try to get everything out of the door
-		 * (until we fail, see top of this loop) */
-
+	while (!shutdown) {
 		gettimeofday(&start, NULL);
-
-		/* try to connect */
-		if (self->fd < 0) {
-			if (self->reresolve) {  /* can only be CON_UDP/CON_TCP */
-				struct addrinfo *saddr;
-				char sport[8];
-
-				/* re-lookup the address info, if it fails, stay with
-				 * whatever we have such that resolution errors incurred
-				 * after starting the relay won't make it fail */
-				freeaddrinfo(self->saddr);
-				snprintf(sport, sizeof(sport), "%u", self->port);
-				if (getaddrinfo(self->ip, sport, self->hint, &saddr) == 0) {
-					self->saddr = saddr;
-				} else {
-					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
-						logerr("failed to resolve %s:%u, server unavailable\n",
-								self->ip, self->port);
-					self->saddr = NULL;
-					/* this will break out below */
-				}
-			}
-
-			if (self->ctype == CON_PIPE) {
-				int intconn[2];
-				connection *conn;
-				if (pipe(intconn) < 0) {
-					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
-						logerr("failed to create pipe: %s\n", strerror(errno));
-					continue;
-				}
-				conn = dispatch_addconnection(intconn[0], NULL, dispatch_worker_with_low_connections(), 0, 1);
-				if (conn == NULL) {
-					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
-						logerr("failed to add pipe: %s\n", strerror(errno));
-					continue;
-				}
-				self->fd = intconn[1];
-			} else if (self->ctype == CON_FILE) {
-				if ((self->fd = open(self->ip,
-								O_WRONLY | O_APPEND | O_CREAT,
-								S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) < 0)
-				{
-					if (__sync_fetch_and_add(&(self->failure), 1) == 0)
-						logerr("failed to open file '%s': %s\n",
-								self->ip, strerror(errno));
-					continue;
-				}
-			} else if (self->ctype == CON_UDP) {
-				struct addrinfo *walk;
-
-				for (walk = self->saddr; walk != NULL; walk = walk->ai_next) {
-					if ((self->fd = socket(walk->ai_family,
-									walk->ai_socktype,
-									walk->ai_protocol)) < 0)
-					{
-						if (walk->ai_next == NULL &&
-								__sync_fetch_and_add(&(self->failure), 1) == 0)
-							logerr("failed to create udp socket: %s\n",
-									strerror(errno));
-						continue;
-					}
-					if (connect(self->fd, walk->ai_addr, walk->ai_addrlen) < 0)
-					{
-						if (walk->ai_next == NULL &&
-								__sync_fetch_and_add(&(self->failure), 1) == 0)
-							logerr("failed to connect udp socket: %s\n",
-									strerror(errno));
-						close(self->fd);
-						self->fd = -1;
-						continue;
-					}
-
-					/* we made it up here, so this connection is usable */
-					break;
-				}
-				/* if this didn't resolve to anything, treat as failure */
-				if (self->saddr == NULL)
-					__sync_add_and_fetch(&(self->failure), 1);
-				/* if all addrinfos failed, try again later */
-				if (self->fd < 0)
-					continue;
-			} else {  /* CON_TCP */
-				int ret;
-				int args;
-				struct addrinfo *walk;
-
-				for (walk = self->saddr; walk != NULL; walk = walk->ai_next) {
-					if ((self->fd = socket(walk->ai_family,
-									walk->ai_socktype,
-									walk->ai_protocol)) < 0)
-					{
-						if (walk->ai_next == NULL &&
-								__sync_fetch_and_add(&(self->failure), 1) == 0)
-							logerr("failed to create socket: %s\n",
-									strerror(errno));
-						continue;
-					}
-
-					/* put socket in non-blocking mode such that we can
-					 * poll() (time-out) on the connect() call */
-					args = fcntl(self->fd, F_GETFL, NULL);
-					if (fcntl(self->fd, F_SETFL, args | O_NONBLOCK) < 0) {
-						logerr("failed to set socket non-blocking mode: %s\n",
-								strerror(errno));
-						close(self->fd);
-						self->fd = -1;
-						continue;
-					}
-					ret = connect(self->fd, walk->ai_addr, walk->ai_addrlen);
-
-					if (ret < 0 && errno == EINPROGRESS) {
-						/* wait for connection to succeed if the OS thinks
-						 * it can succeed */
-						struct pollfd ufds[1];
-						ufds[0].fd = self->fd;
-						ufds[0].events = POLLIN | POLLOUT;
-						ret = poll(ufds, 1, self->iotimeout + (rand() % 100));
-						if (ret == 0) {
-							/* time limit expired */
-							if (walk->ai_next == NULL &&
-									__sync_fetch_and_add(
-										&(self->failure), 1) == 0)
-								logerr("failed to connect() to "
-										"%s:%u: Operation timed out\n",
-										self->ip, self->port);
-							close(self->fd);
-							self->fd = -1;
-							continue;
-						} else if (ret < 0) {
-							/* some select error occurred */
-							if (walk->ai_next &&
-									__sync_fetch_and_add(
-										&(self->failure), 1) == 0)
-								logerr("failed to poll() for %s:%u: %s\n",
-										self->ip, self->port, strerror(errno));
-							close(self->fd);
-							self->fd = -1;
-							continue;
-						} else {
-							if (ufds[0].revents & POLLHUP) {
-								if (walk->ai_next == NULL &&
-										__sync_fetch_and_add(
-											&(self->failure), 1) == 0)
-									logerr("failed to connect() for %s:%u: "
-											"Connection refused\n",
-											self->ip, self->port);
-								close(self->fd);
-								self->fd = -1;
-								continue;
-							}
-							/*
-							int valopt;
-							socklen_t lon = sizeof(int);
-							if (getsockopt(self->fd, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon) < 0) {
-								logerr("failed in getsockopt() %s:%u: %s\n", self->ip, self->port, strerror(errno));
-								continue;
-							}
-							if (valopt) {
-							   logerr("failed delayed connect() %s:%d - %s\n", self->ip, self->port, strerror(valopt));
-							   exit(0);
-							}
-							*/
-						}
-					} else if (ret < 0) {
-						if (walk->ai_next == NULL &&
-								__sync_fetch_and_add(&(self->failure), 1) == 0)
-						{
-							logerr("failed to connect() to %s:%u: %s\n",
-									self->ip, self->port, strerror(errno));
-							dispatch_check_rlimit_and_warn();
-						}
-						close(self->fd);
-						self->fd = -1;
-						continue;
-					}
-
-					/* make socket blocking again */
-					if (fcntl(self->fd, F_SETFL, args) < 0) {
-						logerr("failed to remove socket non-blocking "
-								"mode: %s\n", strerror(errno));
-						close(self->fd);
-						self->fd = -1;
-						continue;
-					}
-
-					/* disable Nagle's algorithm, issue #208 */
-					args = 1;
-					if (setsockopt(self->fd, IPPROTO_TCP, TCP_NODELAY,
-								&args, sizeof(args)) != 0)
-						; /* ignore */
-
-#ifdef TCP_USER_TIMEOUT
-					/* break out of connections when no ACK is being
-					 * received for +- 10 seconds instead of
-					 * retransmitting for +- 15 minutes available on
-					 * linux >= 2.6.37
-					 * the 10 seconds is in line with the SO_SNDTIMEO
-					 * set on the socket below */
-					args = 10000 + (rand() % 300);
-					if (setsockopt(self->fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
-								&args, sizeof(args)) != 0)
-						; /* ignore */
-#endif
-
-					/* if we reached up here, we're good to go, so don't
-					 * continue with the other addrinfos */
-					break;
-				}
-				/* if this didn't resolve to anything, treat as failure */
-				if (self->saddr == NULL)
-					__sync_add_and_fetch(&(self->failure), 1);
-				/* all available addrinfos failed on us */
-				if (self->fd < 0)
-					continue;
-			}
-
-			/* ensure we will break out of connections being stuck more
-			 * quickly than the kernel would give up */
-			timeout.tv_sec = 10;
-			timeout.tv_usec = (rand() % 300) * 1000;
-			if (setsockopt(self->fd, SOL_SOCKET, SO_SNDTIMEO,
-						&timeout, sizeof(timeout)) != 0)
-				; /* ignore */
-			if (self->sockbufsize > 0)
-				if (setsockopt(self->fd, SOL_SOCKET, SO_SNDBUF,
-							&self->sockbufsize, sizeof(self->sockbufsize)) != 0)
-					; /* ignore */
-
-			self->strm->obuflen = 0;
-#ifdef SO_NOSIGPIPE
-			if (self->ctype == CON_TCP || self->ctype == CON_UDP) {
-				int enable = 1;
-				if (setsockopt(self->fd, SOL_SOCKET, SO_NOSIGPIPE,
-							(void *)&enable, sizeof(enable)) != 0)
-					logout("warning: failed to ignore SIGPIPE on socket: %s\n",
-							strerror(errno));
-			}
-#endif
-
-#ifdef HAVE_GZIP
-			if ((self->transport & 0xFFFF) == W_GZIP) {
-				self->strm->hdl.gz = malloc(sizeof(z_stream));
-				if (self->strm->hdl.gz != NULL) {
-					self->strm->hdl.gz->zalloc = Z_NULL;
-					self->strm->hdl.gz->zfree = Z_NULL;
-					self->strm->hdl.gz->opaque = Z_NULL;
-					self->strm->hdl.gz->next_in = Z_NULL;
-				}
-				if (self->strm->hdl.gz == NULL ||
-						deflateInit2(self->strm->hdl.gz,
-							Z_DEFAULT_COMPRESSION,
-							Z_DEFLATED,
-							15 + 16,
-							8,
-							Z_DEFAULT_STRATEGY) != Z_OK)
-				{
-					logerr("failed to open gzip stream: out of memory\n");
-					close(self->fd);
-					self->fd = -1;
-					continue;
-				}
-			}
-#endif
-#ifdef HAVE_LZ4
-			if ((self->transport & 0xFFFF) == W_LZ4) {
-				self->strm->obuflen = 0;
-
-				/* get the maximum size that should ever be required and allocate for it */
-
-				self->strm->hdl.z.cbuflen = LZ4F_compressFrameBound(sizeof(self->strm->obuf), NULL);
-				if ((self->strm->hdl.z.cbuf = malloc(self->strm->hdl.z.cbuflen)) == NULL) {
-					logerr("Failed to allocate %lu bytes for compressed LZ4 data\n", self->strm->hdl.z.cbuflen);
-					close(self->fd);
-					self->fd = -1;
-					continue;
-				}
-			}
-#endif
-#ifdef HAVE_SSL
-			if ((self->transport & ~0xFFFF) == W_SSL) {
-				int rv;
-				z_strm *sstrm;
-
-				if ((self->transport & 0xFFFF) == W_PLAIN) { /* just SSL, nothing else */
-					sstrm = self->strm;
-				} else {
-					sstrm = self->strm->nextstrm;
-				}
-
-				sstrm->hdl.ssl = SSL_new(sstrm->ctx);
-				SSL_set_tlsext_host_name(sstrm->hdl.ssl, self->ip);
-				if (SSL_set_fd(sstrm->hdl.ssl, self->fd) == 0) {
-					logerr("failed to SSL_set_fd: %s\n",
-							ERR_reason_error_string(ERR_get_error()));
-					sstrm->strmclose(sstrm);
-					self->fd = -1;
-					continue;
-				}
-				if ((rv = SSL_connect(sstrm->hdl.ssl)) != 1) {
-					logerr("failed to connect ssl stream: %s\n",
-							sslerror(sstrm, rv));
-					sstrm->strmclose(sstrm);
-					self->fd = -1;
-					continue;
-				}
-				if ((rv = SSL_get_verify_result(sstrm->hdl.ssl)) != X509_V_OK) {
-					logerr("failed to verify ssl certificate: %s\n",
-							sslerror(sstrm, rv));
-					sstrm->strmclose(sstrm);
-					self->fd = -1;
-					continue;
-				}
-			} else
-#endif
-			{
-				z_strm *pstrm;
-
-				if (self->transport == W_PLAIN) { /* just plain socket */
-					pstrm = self->strm;
-				} else {
-					pstrm = self->strm->nextstrm;
-				}
-				pstrm->hdl.sock = self->fd;
-			}
-		}
-
-		/* send up to batch size */
-		len = queue_dequeue_vector(self->batch, self->queue, self->bsize);
-		self->batch[len] = NULL;
-		metric = self->batch;
-
-		if (len == 0 && __sync_add_and_fetch(&(self->failure), 0)) {
-			/* if we don't have anything to send, we have at least a
-			 * connection succeed, so assume the server is up again,
-			 * this is in particular important for recovering this
-			 * node by probes, to avoid starvation of this server since
-			 * its queue is possibly being offloaded to secondaries */
-			if (self->ctype != CON_UDP)
-				logerr("server %s:%u: OK after probe\n", self->ip, self->port);
-			__sync_and_and_fetch(&(self->failure), 0);
-		} else if (len != 0) {
-			if (__sync_bool_compare_and_swap(&(self->keep_running), 0, 0))
-			{
-				/* be noisy during shutdown so we can track any slowing down
-				 * servers, possibly preventing us to shut down */
-				logerr("shutting down %s:%u: waiting for %zu metrics\n",
-						self->ip, self->port, len + queue_len(self->queue));
-			}
-
-			for (; *metric != NULL; metric++) {
-				len = *(size_t *)(*metric);
-				const char *m;
-				for (cnt = 0, m = *metric + sizeof(size_t); cnt < 10; cnt++) {
-					if ((slen = self->strm->strmwrite(self->strm, m, len)) != len) {
-						if (slen >= 0) {
-							m += slen;
-							len -= slen;
-						} else if (errno != EINTR) {
-							break;
-						}
-					} else {
-						break;
-					}
-				}
-				if (slen != len) {
-					/* not fully sent (after tries), or failure
-					 * close connection regardless so we don't get
-					 * synchonisation problems */
-					if (self->ctype != CON_UDP &&
-							__sync_fetch_and_add(&(self->failure), 1) == 0)
-						logerr("failed to write() to %s:%u: %s\n",
-								self->ip, self->port,
-								(slen < 0 ?
-								 self->strm->strmerror(self->strm, slen) :
-								 "incomplete write"));
-					self->strm->strmclose(self->strm);
-					self->fd = -1;
-					break;
-				} else if (!__sync_bool_compare_and_swap(&(self->failure), 0, 0)) {
-					if (self->ctype != CON_UDP)
-						logerr("server %s:%u: OK\n", self->ip, self->port);
-					__sync_and_and_fetch(&(self->failure), 0);
-				}
-				__sync_add_and_fetch(&(self->metrics), 1);
-
-			}
-			/* Flush stream */
-			if (self->fd > 0 && (slen = self->strm->strmflush(self->strm)) < 0) {
-				if (__sync_fetch_and_add(&(self->failure), 1) == 0)
-					logerr("failed to write() to %s:%u: %s\n",
-							self->ip, self->port,
-							(slen < 0 ?
-							 self->strm->strmerror(self->strm, slen) :
-							 "incomplete write"));
-				self->strm->strmclose(self->strm);
-				self->fd = -1;
-			}
-
-			/* reset metric location for requeue metrics from possible unsended buffer
-			 * can duplicate already sended message
-			 */
-			metric -= server_metrics_in_buffer(self);
-			self->strm->obuflen = 0;
-			/* free sended metrics */
-			for (const char **p = self->batch; p != metric && *p != NULL; p++) {
-				free((char *)*p);
-			}
-			/* put back stuff we couldn't process */
-			for (; *metric != NULL; metric++) {
-				if (!queue_putback(self->queue, *metric)) {
-					if (mode & MODE_DEBUG)
-						logerr("server %s:%u: dropping metric: %s",
-								self->ip, self->port,
-								*metric + sizeof(size_t));
-					free((char *)*metric);
-					__sync_add_and_fetch(&(self->dropped), 1);
-				}
-			}
-		}
-
+		shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
+		ret = server_queueread(self, qsize, &idle, shutdown);
 		gettimeofday(&stop, NULL);
 		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
-
-		idle = 0;
+		if (ret <= 0) {
+			/* nothing to do or error, so slow down for a bit
+			 * TODO replace with poll-like model */
+			usleep((300 + (rand2() % 100)) * 1000);  /* 300ms - 400ms */
+		} else if (ret < self->bsize) {
+			usleep((100 + (rand2() % 100)) * 1000);  /* 100ms - 200ms */
+		} else {
+			usleep(2 * 1000);  /* 2ms */
+		}
 	}
-	__sync_and_and_fetch(&(self->running), 0);
 
-	if (self->fd >= 0)
+	while (1) {
+		gettimeofday(&start, NULL);
+		ret = server_queueread(self, qsize, &idle, shutdown);
+		gettimeofday(&stop, NULL);
+		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
+		if (ret == 0) {
+			__sync_bool_compare_and_swap(&(self->alive), 1, 0);
+			if (self->secondariescnt > 0) {
+				int c;
+				char empty = 1;
+				/* workaraound: prevent exit last live reader
+				 * if other server_queuereader read last metrics from queue and can't send it
+				 */
+				for (c = 0; c < self->secondariescnt; c++) {
+					if (self != self->secondaries[c] &&
+						__sync_bool_compare_and_swap(&(self->secondaries[c]->alive), 1, 1)) {
+						empty = 0;
+						break;
+					}
+				}
+				if (empty) {
+					break;
+				}
+				usleep((100 + (rand2() % 100)) * 1000);  /* 100ms - 200ms */
+			} else {
+				break;
+			}
+		} else if (ret < 0) {
+			/* error, so slow down for a bit
+			 * TODO replace with poll-like model */
+			usleep((300 + (rand2() % 100)) * 1000);  /* 300ms - 400ms */
+		}
+		gettimeofday(&stop, NULL);
+		timeout -= timediff(start, stop);
+		if (timeout <= 0) {
+			break;
+		}
+	}
+	__sync_bool_compare_and_swap(&(self->alive), 1, 0);
+	logout("shut down %s:%d\n", self->ip, self->port);
+	if (self->fd >= 0) {
+		self->strm->strmflush(self->strm);
 		self->strm->strmclose(self->strm);
-	if (secpos != NULL)
-		free(secpos);
+	}
+
+	__sync_bool_compare_and_swap(&(self->running), 1, 0);
 	return NULL;
 }
 
@@ -1183,10 +1310,12 @@ server_new(
 	if ((ret = malloc(sizeof(server))) == NULL)
 		return NULL;
 
+	ret->secpos = NULL;
 	ret->type = type;
 	ret->transport = transport;
 	ret->ctype = ctype;
 	ret->tid = 0;
+	ret->secpos = NULL;
 	ret->secondaries = NULL;
 	ret->secondariescnt = 0;
 	ret->ip = strdup(ip);
@@ -1197,6 +1326,7 @@ server_new(
 	ret->port = port;
 	ret->instance = NULL;
 	ret->bsize = bsize;
+	ret->qfree_threshold = 2 * bsize;
 	ret->iotimeout = iotimeout < 250 ? 600 : iotimeout;
 	ret->sockbufsize = sockbufsize;
 	ret->maxstalls = maxstalls;
@@ -1221,7 +1351,7 @@ server_new(
 		/* create an auto-negotiate context */
 		const SSL_METHOD *m = SSLv23_client_method();
 		ret->strm->ctx = SSL_CTX_new(m);
-		
+	
 		if (sslCA != NULL) {
 			if (ret->strm->ctx == NULL ||
 				SSL_CTX_load_verify_locations(ret->strm->ctx,
@@ -1337,10 +1467,12 @@ server_new(
 	ret->stallseq = 0;
 	ret->metrics = 0;
 	ret->dropped = 0;
+	ret->requeue = 0;
 	ret->stalls = 0;
 	ret->ticks = 0;
 	ret->prevmetrics = 0;
 	ret->prevdropped = 0;
+	ret->prevrequeue = 0;
 	ret->prevstalls = 0;
 	ret->prevticks = 0;
 	ret->tid = 0;
@@ -1396,6 +1528,8 @@ server_cmp(server *s, struct addrinfo *saddr, const char *ip, unsigned short por
 char
 server_start(server *s)
 {
+	if (server_secpos_alloc(s) == -1)
+		return -1;
 	return pthread_create(&s->tid, NULL, &server_queuereader, s);
 }
 
@@ -1441,7 +1575,32 @@ server_set_instance(server *self, char *instance)
 inline char
 server_send(server *s, const char *d, char force)
 {
-	if (queue_free(s->queue) == 0) {
+	size_t qfree = queue_free(s->queue);
+	/* check for overloaded destination */
+	if (!force && s->secondariescnt > 0 &&
+		(__sync_add_and_fetch(&(s->failure), 0) || QUEUE_FREE_CRITICAL(qfree, s))) {
+		size_t i;
+		size_t maxqfree = qfree + 4 * s->bsize;
+		queue *squeue = s->queue;
+
+		for (i = 0; i < s->secondariescnt; i++) {
+			if (s != s->secondaries[i] && !__sync_add_and_fetch(&(s->secondaries[i]->failure), 0) &&
+					__sync_bool_compare_and_swap(&(s->secondaries[i]->keep_running), 1, 1)) {
+				size_t sqfree = queue_free(s->secondaries[i]->queue);
+				if (sqfree >  maxqfree) {
+					squeue = s->secondaries[i]->queue;
+					maxqfree = sqfree;
+				}
+			}
+		}
+		if (squeue != s->queue) {
+			if (__sync_add_and_fetch(&(s->failure), 0) == 0)
+				__sync_add_and_fetch(&(s->requeue), 1);
+			queue_enqueue(squeue, d);
+			return 1;
+		}
+	}
+	if (qfree == 0) {
 		char failure = __sync_add_and_fetch(&(s->failure), 0);
 		if (!force && s->secondariescnt > 0) {
 			size_t i;
@@ -1455,7 +1614,7 @@ server_send(server *s, const char *d, char force)
 			}
 		}
 		if (failure || force ||
-				__sync_add_and_fetch(&(s->stallseq), 0) == s->maxstalls)
+			__sync_add_and_fetch(&(s->stallseq), 0) == s->maxstalls)
 		{
 			__sync_add_and_fetch(&(s->dropped), 1);
 			/* excess event will be dropped by the enqueue below */
@@ -1478,50 +1637,23 @@ server_send(server *s, const char *d, char force)
 void
 server_shutdown(server *s)
 {
-	int i;
-	size_t failures;
-	size_t inqueue;
-
-	/* this function should only be called on a running server */
-	if (__sync_bool_compare_and_swap(&(s->keep_running), 0, 0))
-		return;
-
-	if (s->secondariescnt > 0) {
-		/* if we have a working connection, or we still have stuff in
-		 * our queue, wait for our secondaries, as they might need us,
-		 * or we need them */
-		do {
-			failures = 0;
-			inqueue = 0;
-			for (i = 0; i < s->secondariescnt; i++) {
-				if (__sync_add_and_fetch(&(s->secondaries[i]->failure), 0))
-					failures++;
-				if (__sync_add_and_fetch(&(s->secondaries[i]->running), 0))
-					inqueue += queue_len(s->secondaries[i]->queue);
-			}
-			/* loop until we all failed, or nothing is in the queues */
-		} while (failures != s->secondariescnt &&
-				inqueue != 0 &&
-				logout("any_of cluster pending %zu metrics "
-					"(with %zu failed nodes)\n", inqueue, failures) >= -1 &&
-				usleep((200 + (rand() % 100)) * 1000) <= 0);
-		/* shut down entire cluster */
-		for (i = 0; i < s->secondariescnt; i++)
-			__sync_bool_compare_and_swap(
-					&(s->secondaries[i]->keep_running), 1, 0);
-		/* to pretend to be dead for above loop (just in case) */
-		if (inqueue != 0)
-			for (i = 0; i < s->secondariescnt; i++)
-				__sync_add_and_fetch(&(s->secondaries[i]->failure), 1);
-		/* wait for the secondaries to be stopped so we surely don't get
-		 * invalid reads when server_free is called */
-		for (i = 0; i < s->secondariescnt; i++) {
-			while (__sync_add_and_fetch(&(s->secondaries[i]->running), 0))
-				usleep((200 + (rand() % 100)) * 1000);
-		}
-	}
-
 	__sync_bool_compare_and_swap(&(s->keep_running), 1, 0);
+}
+
+void server_shutdown_wait(server *s)
+{
+	int i;
+	/* wait for the secondaries to be stopped so we surely don't get
+     * invalid reads when server_free is called */
+	if (s->secondariescnt > 0) {
+		for (i = 0; i < s->secondariescnt; i++) {
+		   while (!__sync_bool_compare_and_swap(&(s->secondaries[i]->running), 0, 0))
+			   usleep(200 * 1000);
+		}
+	} else {
+	   while (!__sync_bool_compare_and_swap(&(s->running), 0, 0))
+		   usleep(200 * 1000);
+	}
 }
 
 /**
@@ -1557,6 +1689,7 @@ server_free(server *s) {
 		free(s->strm->nextstrm);
 	free(s->strm);
 	s->ip = NULL;
+	free(s->secpos);
 	free(s);
 }
 
@@ -1581,10 +1714,12 @@ server_swap_queue(server *l, server *r)
 	l->dropped = r->dropped;
 	l->stalls = r->stalls;
 	l->ticks = r->ticks;
+	l->requeue = r->requeue;
 	l->prevmetrics = r->prevmetrics;
 	l->prevdropped = r->prevdropped;
 	l->prevstalls = r->prevstalls;
 	l->prevticks = r->prevticks;
+	l->prevrequeue = r->prevrequeue;
 }
 
 /**
@@ -1735,6 +1870,31 @@ server_get_dropped_sub(server *s)
 		return 0;
 	d = __sync_add_and_fetch(&(s->dropped), 0) - s->prevdropped;
 	s->prevdropped += d;
+	return d;
+}
+
+/**
+ * Returns the number of metrics requeued since start.
+ */
+inline size_t
+server_get_requeue(server *s)
+{
+	if (s == NULL)
+		return 0;
+	return __sync_add_and_fetch(&(s->requeue), 0);
+}
+
+/**
+ * Returns the number of metrics requeued since last call to this function.
+ */
+inline size_t
+server_get_requeue_sub(server *s)
+{
+	size_t d;
+	if (s == NULL)
+		return 0;
+	d = __sync_add_and_fetch(&(s->requeue), 0) - s->prevrequeue;
+	s->prevrequeue += d;
 	return d;
 }
 

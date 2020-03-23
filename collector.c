@@ -56,6 +56,7 @@ collector_runner(void *s)
 	size_t queued;
 	size_t stalls;
 	size_t dropped;
+	size_t requeue;
 	size_t sleeps;
 	time_t now;
 	time_t nextcycle;
@@ -74,6 +75,7 @@ collector_runner(void *s)
 	size_t (*s_metrics)(server *) = NULL;
 	size_t (*s_stalls)(server *) = NULL;
 	size_t (*s_dropped)(server *) = NULL;
+	size_t (*s_requeue)(server *) = NULL;
 	size_t (*d_ticks)(dispatcher *) = NULL;
 	size_t (*d_metrics)(dispatcher *) = NULL;
 	size_t (*d_blackholes)(dispatcher *) = NULL;
@@ -119,6 +121,7 @@ collector_runner(void *s)
 				s_metrics = server_get_metrics_sub;
 				s_stalls = server_get_stalls_sub;
 				s_dropped = server_get_dropped_sub;
+				s_requeue = server_get_requeue_sub;
 				d_ticks = dispatch_get_ticks_sub;
 				d_metrics = dispatch_get_metrics_sub;
 				d_blackholes = dispatch_get_blackholes_sub;
@@ -132,6 +135,7 @@ collector_runner(void *s)
 				s_metrics = server_get_metrics;
 				s_stalls = server_get_stalls;
 				s_dropped = server_get_dropped;
+				s_requeue = server_get_requeue;
 				d_ticks = dispatch_get_ticks;
 				d_metrics = dispatch_get_metrics;
 				d_blackholes = dispatch_get_blackholes;
@@ -201,7 +205,7 @@ collector_runner(void *s)
 				totsleeps, (size_t)now);
 		send(metric);
 
-#define send_server_metrics(ipbuf, ticks, metrics, queued, stalls, dropped) \
+#define send_server_metrics(ipbuf, ticks, metrics, queued, stalls, dropped, requeue) \
 			snprintf(m, sizem, "destinations.%s.sent %zu %zu\n", \
 					ipbuf, metrics, (size_t)now); \
 			send(metric); \
@@ -213,6 +217,9 @@ collector_runner(void *s)
 			send(metric); \
 			snprintf(m, sizem, "destinations.%s.dropped %zu %zu\n", \
 					ipbuf, dropped, (size_t)now); \
+			send(metric); \
+			snprintf(m, sizem, "destinations.%s.requeue %zu %zu\n", \
+					ipbuf, requeue, (size_t)now); \
 			send(metric); \
 			snprintf(m, sizem, "destinations.%s.wallTime_us %zu %zu\n", \
 					ipbuf, ticks, (size_t)now); \
@@ -232,7 +239,7 @@ collector_runner(void *s)
 		stalls = s_stalls(submission);
 		dropped = s_dropped(submission);
 		send_server_metrics(server_ip(submission),
-				ticks, metrics, queued, stalls, dropped);
+				ticks, metrics, queued, stalls, dropped, 0ul);
 
 		for (i = 0; srvs[i] != NULL; i++) {
 			switch (server_ctype(srvs[i])) {
@@ -261,8 +268,9 @@ collector_runner(void *s)
 			totqueued += queued = server_get_queue_len(srvs[i]);
 			totstalls += stalls = s_stalls(srvs[i]);
 			totdropped += dropped = s_dropped(srvs[i]);
+			requeue = s_requeue(srvs[i]);
 			send_server_metrics(destbuf,
-					ticks, metrics, queued, stalls, dropped);
+					ticks, metrics, queued, stalls, dropped, requeue);
 		}
 
 		snprintf(m, sizem, "metricsSent %zu %zu\n",

@@ -26,6 +26,10 @@
 
 #define SERVER_MAX_SEND    10 /* max try write to socket for complete */
 
+extern int queuefree_threshold_start;
+extern int queuefree_threshold_end;
+extern int shutdown_timeout;
+
 typedef struct _server server;
 
 server *server_new(
@@ -48,6 +52,7 @@ void server_set_failover(server *d);
 void server_set_instance(server *d, char *inst);
 char server_send(server *s, const char *d, char force);
 void server_shutdown(server *s);
+void server_shutdown_wait(server *s);
 void server_free(server *s);
 void server_swap_queue(server *l, server *r);
 const char *server_ip(server *s);
@@ -61,10 +66,12 @@ size_t server_get_ticks(server *s);
 size_t server_get_metrics(server *s);
 size_t server_get_stalls(server *s);
 size_t server_get_dropped(server *s);
+size_t server_get_requeue(server *s);
 size_t server_get_ticks_sub(server *s);
 size_t server_get_metrics_sub(server *s);
 size_t server_get_stalls_sub(server *s);
 size_t server_get_dropped_sub(server *s);
+size_t server_get_requeue_sub(server *s);
 size_t server_get_queue_len(server *s);
 size_t server_get_queue_size(server *s);
 
