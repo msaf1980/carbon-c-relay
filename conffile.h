@@ -106,6 +106,8 @@ typedef struct _route {
 	struct _route *next;
 } route;
 
+cluster *cluster_new(allocator *a, char *name, char dupname, enum clusttype type);
+
 void router_yyerror(void *locp, void *, router *r, allocator *ra, allocator *pa, const char *msg);
 char *router_validate_address(router *rtr, char **retip, unsigned short *retport, void **retsaddr, void **rethint, char *ip, con_proto proto);
 char *router_validate_path(router *rtr, char *path);

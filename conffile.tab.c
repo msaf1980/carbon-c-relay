@@ -1764,13 +1764,10 @@ yyreduce:
 		for (srvcnt = 0, w = (yyvsp[0].cluster_hosts); w != NULL; w = w->next, srvcnt++)
 			;
 
-		if (((yyval.cluster) = ra_malloc(ralloc, sizeof(cluster))) == NULL) {
+		if (((yyval.cluster) = cluster_new(ralloc, (yyvsp[-2].crSTRING), 1, (yyvsp[-1].cluster_type).t)) == NULL) {
 			logerr("malloc failed for cluster '%s'\n", (yyvsp[-2].crSTRING));
 			YYABORT;
 		}
-		(yyval.cluster)->name = ra_strdup(ralloc, (yyvsp[-2].crSTRING));
-		(yyval.cluster)->next = NULL;
-		(yyval.cluster)->type = (yyvsp[-1].cluster_type).t;
 		switch ((yyval.cluster)->type) {
 			case CARBON_CH:
 			case FNV1A_CH:
@@ -1832,13 +1829,10 @@ yyreduce:
 	   	struct _clhost *w;
 		char *err;
 
-		if (((yyval.cluster) = ra_malloc(ralloc, sizeof(cluster))) == NULL) {
+		if (((yyval.cluster) = cluster_new(ralloc, (yyvsp[-2].crSTRING), 1, (yyvsp[-1].cluster_file).t)) == NULL) {
 			logerr("malloc failed for cluster '%s'\n", (yyvsp[-2].crSTRING));
 			YYABORT;
 		}
-		(yyval.cluster)->name = ra_strdup(ralloc, (yyvsp[-2].crSTRING));
-		(yyval.cluster)->next = NULL;
-		(yyval.cluster)->type = (yyvsp[-1].cluster_file).t;
 		switch ((yyval.cluster)->type) {
 			case FILELOG:
 			case FILELOGIP:
@@ -2211,13 +2205,10 @@ yyreduce:
 				YYABORT;
 			}
 			d->next = NULL;
-			if ((d->cl = ra_malloc(ralloc, sizeof(cluster))) == NULL) {
+			if ((d->cl = cluster_new(ralloc, NULL, 0, VALIDATION)) == NULL) {
 				logerr("out of memory\n");
 				YYABORT;
 			}
-			d->cl->name = NULL;
-			d->cl->type = VALIDATION;
-			d->cl->next = NULL;
 			d->cl->members.validation = ra_malloc(ralloc, sizeof(validate));
 			if (d->cl->members.validation == NULL) {
 				logerr("out of memory\n");
@@ -2462,16 +2453,13 @@ yyreduce:
 			router_yyerror(&yylloc, yyscanner, rtr, ralloc, palloc, err);
 			YYERROR;
 		}
-		
-		cl = ra_malloc(ralloc, sizeof(cluster));
+
+		cl = cluster_new(ralloc, NULL, 0, REWRITE);
 		if (cl == NULL) {
 			logerr("out of memory\n");
 			YYABORT;
 		}
-		cl->type = REWRITE;
-		cl->name = NULL;
 		cl->members.replacement = ra_strdup(ralloc, (yyvsp[0].crSTRING));
-		cl->next = NULL;
 		if (cl->members.replacement == NULL) {
 			logerr("out of memory\n");
 			YYABORT;
@@ -2521,14 +2509,11 @@ yyreduce:
 				YYERROR;
 			}
 
-			w = ra_malloc(ralloc, sizeof(cluster));
+			w = cluster_new(ralloc, NULL, 0, AGGREGATION);
 			if (w == NULL) {
 				logerr("malloc failed for aggregate\n");
 				YYABORT;
 			}
-			w->name = NULL;
-			w->type = AGGREGATION;
-			w->next = NULL;
 
 			a = aggregator_new((yyvsp[-9].crINTVAL), (yyvsp[-5].crINTVAL), (yyvsp[-3].aggregate_opt_timestamp));
 			if (a == NULL) {
