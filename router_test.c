@@ -35,9 +35,6 @@
 #include "relay.h"
 #include "md5.h"
 
-#define SRVCNT 8
-#define REPLCNT 2
-
 unsigned char mode = 0;
 
 int
@@ -116,7 +113,7 @@ MU_TEST(router_validate_address_hostname_port) {
 	mu_check(router_validate_address(r, &retip, &retport, &retsaddr, &rethint, ip, CON_TCP) != NULL);
 }
 
-MU_TEST_SUITE(test_suite) {
+MU_TEST_SUITE(router_validate_address_suite) {
 	MU_RUN_TEST(router_validate_address_hostname);
 	MU_RUN_TEST(router_validate_address_port);
 	MU_RUN_TEST(router_validate_address_hostname_port);
@@ -126,7 +123,8 @@ int main(int argc, char *argv[]) {
 	if ((r = router_new()) == NULL) {
 		return 1;
 	}
-	MU_RUN_SUITE(test_suite);
+	MU_RUN_SUITE(router_validate_address_suite);
+	MU_RUN_SUITE(router_validate_address_suite);
 	MU_REPORT();
 	return MU_EXIT_CODE;
 }

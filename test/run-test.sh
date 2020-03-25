@@ -734,7 +734,7 @@ while [[ -n $1 ]] ; do
 done
 
 ufail=0
-echo "Unit tests"
+echo "Tests"
 for test in ../test_* ; do
 	[ -x "${test}" ] || continue
 	echo -n "# $( basename ${test} )"
@@ -742,7 +742,7 @@ for test in ../test_* ; do
 done
 [ "${ufail}" == "1" ] && exit 1
 
-echo "Integration tests"
+echo "Relay tests"
 echo -n "generating datasets ..."
 buftest_generate
 large_generate
