@@ -146,13 +146,25 @@ if SSL_ENABLED
 CRTESTS += dual-ssl large-ssl dual-large-ssl
 endif
 
-test: check
-test-%: relay libfaketime.la sendmetric
+CRTESTS_EXT = \
+    failover \
+    any_of \
+    $(NULL)
+
+build-test: relay libfaketime.la sendmetric
+test: build-test check
+test-ext: build-test check-ext
+test-all: build-test check-all
+test-%: build-test
 	@( cd test && ./run-test.sh $* )
-approve-%: relay sendmetric
+approve-%: build-test
 	@( cd test && ./run-test.sh -a $* )
 check-local:
 	@( cd test && ./run-test.sh $(CRTESTS) )
+check-ext:
+	@( cd test && ./run-test.sh $(CRTESTS_EXT) )
+check-all:
+	@( cd test && ./run-test.sh $(CRTESTS) $(CRTESTS_EXT) )
 install-exec-local:  # libtool refuses to build shared for check or noinst trg
 	$(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall \
 		rm -f "$(DESTDIR)$(libdir)/libfaketime.la"

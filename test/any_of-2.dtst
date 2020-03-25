@@ -1,0 +1,6 @@
+cluster test any_of
+	127.0.0.1:@remoteport2@
+	127.0.0.1:@remoteport1@
+	;
+
+match ^foo\. send to test;

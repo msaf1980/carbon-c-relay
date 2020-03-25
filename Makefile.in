@@ -472,6 +472,11 @@ CRTESTS = issue10 issue27 issue117 issue156 issue157 issue163 issue165 \
 	metriclimits buftest large dual-udp dual-tcp dual-gzip \
 	large-gzip dual-large-gzip dual-lz4 large-lz4 dual-large-lz4 \
 	$(NULL) $(am__append_1)
+CRTESTS_EXT = \
+    failover \
+    any_of \
+    $(NULL)
+
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -1167,13 +1172,20 @@ man:
 		--roff \
 	> relay.1
 
-test: check
-test-%: relay libfaketime.la sendmetric
+build-test: relay libfaketime.la sendmetric
+test: build-test check
+test-ext: build-test check-ext
+test-all: build-test check-all
+test-%: build-test
 	@( cd test && ./run-test.sh $* )
-approve-%: relay sendmetric
+approve-%: build-test
 	@( cd test && ./run-test.sh -a $* )
 check-local:
 	@( cd test && ./run-test.sh $(CRTESTS) )
+check-ext:
+	@( cd test && ./run-test.sh $(CRTESTS_EXT) )
+check-all:
+	@( cd test && ./run-test.sh $(CRTESTS) $(CRTESTS_EXT) )
 install-exec-local:  # libtool refuses to build shared for check or noinst trg
 	$(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall \
 		rm -f "$(DESTDIR)$(libdir)/libfaketime.la"

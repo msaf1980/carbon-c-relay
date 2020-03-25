@@ -16,6 +16,7 @@
 
 EXEC=../relay
 SMEXEC=../sendmetric
+SLOWPROXY="python slow-proxy.py"
 EFLAGS="-Htest.hostname -t"
 DIFF="diff -Nu"
 POST="cat"
@@ -38,7 +39,6 @@ while [ $i -le $end ]; do
 done
 ln -sf buftest.payload buftest.payloadout
 ln -sf buftest.payload bundletest.payload
-ln -sf buftest.payload bundletest.payloadout
 }
 
 large_generate() {
@@ -50,6 +50,10 @@ while [ $i -le $end ]; do
     i=$(($i+1))
 done
 ln -sf large.payload large.payloadout
+ln -sf large.payload failover.payload
+ln -sf large.payload failover.payloadout
+ln -sf large.payload any_of.payload
+ln -sf large.payload any_of.payloadout
 }
 
 large_ssl_generate() {
@@ -124,6 +128,8 @@ run_configtest() {
 	fi
 }
 
+start_server_lastport=3020 #TODO replace with free port detection
+
 run_servertest() {
 	local confarg=$1
 	local payload=$2
@@ -164,7 +170,6 @@ run_servertest() {
 	[[ -e ${confarg2} ]] && mode=DUAL
 
 	local start_server_result
-	local start_server_lastport=3020  # TODO
 	start_server() {
 		local id=$1
 		local remoteport=$2
@@ -372,6 +377,7 @@ run_reloadtest() {
 		local conf=$2
 		local port=$3
 		local unixsock="$4"
+		local remoteport="$5"
 		[ -e "${conf_arg}" ] || {
 			echo ${conf_arg} not exist
 			return 1
@@ -438,25 +444,17 @@ run_reloadtest() {
 	}
 
 	# determine a free port to use
-	local start_server_lastport=3020  # TODO
 	local port=${start_server_lastport}
+	: $((start_server_lastport++))  # TODO
 	local unixsock="${tmpdir}/sock.${port}"
 	write_config ${confarg} ${conf} $port ${unixsock} || return 1
 	start_server ${conf} || return 1
 	pid=${start_server_result[2]}
 	output=${start_server_result[3]}
-
-	#local smargs=
-	#[[ -e ${test}.sargs ]] && smargs=$(< ${test}.sargs)
-	#${SMEXEC} ${SMARG} ${smargs} "${unixsock}" < "${payload}"
-	#if [[ $? != 0 ]] ; then
-		#echo "failed to send payload"
-		#exit 1
-		#return 1
-	#fi
-
 	reload_ret=0
+
 	for conf_arg in ${confarg2} ${confarg} ${confarg2} ; do
+		local port=${start_server_lastport}
 		echo -n "${conf_arg} "
 		write_config ${conf_arg} ${conf} ${port} ${unixsock} || return 1
 		> "${output}"
@@ -473,19 +471,17 @@ run_reloadtest() {
 		done
 		[ "${reload_ret}" == "1" ] && echo FAIL
 
-		[ "${reload_ret}" == "0" ] && {
-			${SMEXEC} "${unixsock}" < "${payload}" || {
-				echo "FAIL unix socket send"
-				reload_ret=1
-			}
-			${SMEXEC} -t 127.0.0.1:${port} < "${payload}" || {
-				echo "FAIL tcp send"
-				reload_ret=1
-			}
-			${SMEXEC} -u 127.0.0.1:${port} < "${payload}" || {
-				echo "FAIL udp send"
-				reload_ret=1
-			}
+		${SMEXEC} "${unixsock}" < "${payload}" || {
+			echo "FAIL unix socket send"
+			reload_ret=1
+		}
+		${SMEXEC} -t 127.0.0.1:${port} < "${payload}" || {
+			echo "FAIL tcp send"
+			reload_ret=1
+		}
+		${SMEXEC} -u 127.0.0.1:${port} < "${payload}" || {
+			echo "FAIL udp send"
+			reload_ret=1
 		}
 		[ "${reload_ret}" == "1" ] && {
 			echo "=== ${conf} ==="
@@ -496,14 +492,13 @@ run_reloadtest() {
 		}
 
 		# determine next port for use
-		: $((port++)) #TODO
-
+		: $((start_server_lastport++))  # TODO
 		echo PASS
 		echo -n "${test}: "
 	done
 
 	# kill and wait for relay to come down
-	ps -p ${pid} >/dev/null &&	kill ${pid}
+	ps -p ${pid} >/dev/null && kill ${pid}
 	wait ${pid}
 	ret=$?
 	if [ "${ret}" == "0" -a "${reload_ret}" == "0" ]; then
@@ -532,6 +527,191 @@ run_reloadtest() {
 	fi
 
 	# cleanup
+	rm -Rf "${tmpdir}"
+
+	return ${ret}
+}
+
+run_desttest() {
+	local confarg=$1
+	local payload=$2
+
+	local mode=SINGLE
+	local tmpdir=$(mktemp -d)
+	local output=
+	local pidfile=
+	local unixsock=
+	local port=
+	local conf="${tmpdir}"/conf
+	local dataout="${tmpdir}"/data.out
+	local confarg=$1
+	local payload=$2
+	local transport=$3
+	local payloadexpect="${payload}out"
+	local test=${confarg%.*}
+	local confarg2=${test}-2.${confarg##*.}
+	local conf2="${tmpdir}"/conf-2
+	local dataout2="${tmpdir}"/data2.out
+
+	echo -n "${test}: "
+	[[ -e ${confarg2} ]] || {
+		echo "${confarg2} not exist" >&2
+		return 1
+	}
+
+	local start_server_result
+
+	write_config() {
+		local conf_arg=$1
+		local conf=$2
+		local port=$3
+		local unixsock="$4"
+		local dataout="$5"
+		local remoteport1="$6"
+		local remoteport2="$7"
+		[ -e "${conf_arg}" ] || {
+			echo ${conf_arg} not exist
+			return 1
+		}
+		# write config file with known listener
+		{
+			echo "# relay, mode ${mode}"
+			echo "listen type linemode transport plain"
+			echo "    ${unixsock} proto unix"
+			echo "    ;"
+			echo
+			echo "cluster default"
+			echo "    file ${dataout}"
+			echo "    ;"
+			echo
+			if [[ -n ${relayargs} ]] ; then
+				echo "# extra arguments given to ${EXEC}:"
+				echo "#   ${relayargs}"
+				echo
+			fi
+			echo "# contents from ${confarg} below this line"
+			sed \
+				-e "s/@port@/${port}/g" \
+				-e "s/@remoteport1@/${remoteport1}/g" \
+				-e "s/@remoteport2@/${remoteport2}/g" \
+				-e "s/@cert@/${cert}/g" \
+				"${conf_arg}"
+		} > "${conf}"
+		return $?
+	}
+
+	start_server() {
+		local conf=$1
+		local output="${conf}.out"
+		local pidfile="${conf}.pid"
+
+		local relayargs=
+		[[ -e ${test}.args ]] && relayargs=$(< ${test}.args)
+		[[ -e ${test}.args ]] && relayargs=$(< ${test}.args)
+
+		${EXEC} -d -w 1 -f "${conf}" -Htest.hostname -s \
+			-l "${output}" -P "${pidfile}" ${relayargs} >/dev/null &
+		ret=$?
+		if [[ $ret == 0 ]] ; then
+			sleep 1
+			local pid=$(< "${pidfile}")
+			if [[ "$pid" == "" ]] ; then
+				ret=1
+			else
+				ps -p ${pid} >& /dev/null || ret=1
+			fi
+		fi
+		if [[ $ret != 0 ]] ; then
+			echo "failed to start relay ${id} in ${PWD}:"
+			echo ${EXEC} -d -f "${conf}" -Htest.hostname -s -D -l \
+				"${output}" -P "${pidfile}" ${relayargs}
+			echo "=== ${conf} ==="
+			cat "${conf}"
+			echo "=== ${output} ==="
+			cat "${output}"
+			return 1
+		fi
+
+		start_server_result=( ${port} ${unixsock} ${pid} ${output} )
+	}
+
+	# TODO determine a free port to use
+	local port=${start_server_lastport}
+	: $((start_server_lastport++))
+	local remoteport1=${start_server_lastport}
+	: $((start_server_lastport++))
+	local remoteport2=${start_server_lastport}
+	: $((start_server_lastport++))
+	local unixsock="${tmpdir}/sock.${port}"
+	write_config ${confarg} ${conf} ${port} ${unixsock} ${dataout} ${remoteport1} ${remoteport2} || return 1
+	start_server ${conf} || return 1
+	pid=${start_server_result[2]}
+	output=${start_server_result[3]}
+	reload_ret=0
+
+	local unixsock2="${tmpdir}/sock2.${port}"
+	write_config ${confarg2} ${conf2} ${port} ${unixsock2} ${dataout2} ${remoteport1} ${remoteport2} || return 1
+	start_server ${conf2} || return 1
+	pid2=${start_server_result[2]}
+	output2=${start_server_result[3]}
+	
+	${SLOWPROXY} -p ${remoteport2} -f ${remoteport1} -m 11 -x 20 -v > "${conf}-slow.out" 2>&1 &
+	pid3=$!
+	
+	${SMEXEC} "${unixsock2}" < "${payload}"
+
+	sleep 60
+	# kill and wait for relay to come down
+	ps -p ${pid2} >/dev/null && kill ${pid2}
+	wait ${pid2}
+	ret2=$?
+	kill ${pid} ${pid3}
+	wait ${pid}
+	ret=$?
+	wait ${pid3}
+	ret3=$?
+	if [ "${ret}" == "0" -a "${ret2}" == "0" -a "${ret3}" == "0" ]; then
+		sort "${dataout}" > "${dataout}.sorted"
+		sort "${payloadexpect}" > "${dataout}.want"
+		${DIFF} "${dataout}.want" "${dataout}.sorted"  \
+				--label "${payloadexpect}" --label "${payloadexpect}" > "${dataout}.diff"
+				
+		if [[ $? == 0 ]] ; then
+			echo "PASS"
+			ret=0
+		else
+			echo "FAIL"
+			lines=$( wc -l "${dataout}.diff" | awk '{ print $1; }' )
+			if [ "${lines}" == "" -o "${lines}" -lt "400" ]; then
+				${POST} < "${dataout}.diff"
+			else
+				head -40 "${dataout}.diff" | ${POST}
+				echo ... | ${POST}
+				tail -40 "${dataout}.diff" | ${POST}
+			fi
+			ret=1
+		fi
+	elif [ "${ret}" != "0" ]; then
+		echo FAIL
+		echo "relay exit with SIG$(kill -l $(($ret-128))) signal"
+	elif [ "${ret2}" != "0" ]; then
+		echo FAIL
+		echo "relay 2 exit with SIG$(kill -l $(($ret2-128))) signal"
+	elif [ "${ret3}" != "0" ]; then
+		echo FAIL
+		echo "relay slow proxy exit with ${ret3}"
+	else
+		ret=1
+	fi
+
+	if [[ -n ${RUN_TEST_DROP_IN_SHELL} ]] ; then
+		echo "dropping shell in ${tmpdir}"
+		( unset DYLD_FORCE_FLAT_NAMESPACE DYLD_INSERT_LIBRARIES LD_PRELOAD;
+		  cd ${tmpdir} && ${SHELL} )
+	fi
+
+	# cleanup
+	#echo "${tmpdir}"
 	rm -Rf "${tmpdir}"
 
 	return ${ret}
@@ -595,6 +775,12 @@ for t in $* ; do
 	elif [[ -e ${t}.rtst ]] ; then
 		: $((tstcnt++))
 		run_reloadtest "${t}.rtst" "${t}.payload" || {
+			: $((tstfail++))
+			tstfailed="${tstfailed} ${t}.rtst"
+		}
+	elif [[ -e ${t}.dtst ]] ; then
+		: $((tstcnt++))
+		run_desttest "${t}.dtst" "${t}.payload" || {
 			: $((tstfail++))
 			tstfailed="${tstfailed} ${t}.rtst"
 		}

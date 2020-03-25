@@ -1,0 +1,4 @@
+listen type linemode transport plain 127.0.0.1:@remoteport1@ proto tcp;
+listen type linemode transport plain 127.0.0.1:@remoteport1@ proto udp;
+
+match ^foo\. send to default;
