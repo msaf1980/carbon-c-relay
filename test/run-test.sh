@@ -461,8 +461,8 @@ run_reloadtest() {
 		kill -SIGHUP ${pid}
 		# allow everything to be processed
 		reload_ret=1
-		for i in 1 2 3 ; do
-			sleep 1
+		for i in 1 2 1 2 ; do
+			sleep ${i}
 			ps -p ${pid} >/dev/null || break
 			grep 'SIGHUP handler complete' "${tmpdir}"/relay.out >/dev/null && {
 				reload_ret=0
@@ -655,7 +655,7 @@ run_desttest() {
 	pid2=${start_server_result[2]}
 	output2=${start_server_result[3]}
 	
-	${SLOWPROXY} -p ${remoteport2} -f ${remoteport1} -m 11 -x 20 -v > "${conf}-slow.out" 2>&1 &
+	${SLOWPROXY} -p ${remoteport2} -f ${remoteport1} -m 11 -x 60 -v > "${conf}-slow.out" 2>&1 &
 	pid3=$!
 	
 	${SMEXEC} "${unixsock2}" < "${payload}"
