@@ -290,18 +290,28 @@ run_servertest() {
 	sleep 3
 
 	# kill and wait for relay to come down
-	local pids=$(< "${pidfile}")
-	[[ ${mode} == DUAL ]] && pids+=" $(< "${pidfile2}")"
-	kill ${pids}
-	local i=10
+	local pid=$(< "${pidfile}")
+	if [ ${mode} == DUAL ]; then
+		pid2="$(< "${pidfile2}")"
+		kill ${pid2}
+		local i=5
+		while [[ ${i} -gt 0 ]] ; do
+			ps -p ${pid2} >& /dev/null || break
+			echo -n "."
+			sleep 1
+			: $((i--))
+		done
+	fi
+	kill ${pid}
+	local i=5
 	while [[ ${i} -gt 0 ]] ; do
-		ps -p ${pids} >& /dev/null || break
+		ps -p ${pid} >& /dev/null || break
 		echo -n "."
 		sleep 1
 		: $((i--))
 	done
 	# if it didn't yet die, make it so
-	[[ ${i} == 0 ]] && kill -KILL ${pids}
+	ps -p ${pid} ${pid2} >& /dev/null && kill -KILL ${pids}
 
 	# add errors to the mix
 	sed -n 's/^.*(ERR)/relay 1:/p' ${output} >> "${dataout}"
@@ -335,6 +345,7 @@ run_servertest() {
 	fi
 
 	# cleanup
+	#echo "${tmpdir}"
 	rm -Rf "${tmpdir}"
 
 	return ${ret}
