@@ -916,7 +916,7 @@ static inline int server_secpos_alloc(server *self)
 	return 0;
 }
 
-static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shutdown)
+static ssize_t server_queueread(server *self, char shutdown, char *idle)
 {
 	size_t len;
 	ssize_t slen;
@@ -934,7 +934,7 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 			tracef("throttle end %s:%u: waiting for %zu metrics\n",
 					self->ip, self->port, queue_len(self->queue));
 	}
-	if (qfree == qsize) {
+	if (qfree == queue_size(self->queue)) {
 		/* if we're idling, close the TCP connection, this allows us
 		 * to reduce connections, while keeping the connection alive
 		 * if we're writing a lot */
@@ -953,23 +953,9 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 		 * connect, this avoids unnecessary queue moves */
 		if (self->secondariescnt == 0)
 			return 0;
-		else {
-			int i;
-			int queued = 0;
-			for (i = 0; i < self->secondariescnt; i++) {
-				if (self != self->secondaries[i] && queue_len(self->secondaries[i]->queue) > 0) {
-					queued = 1;
-					break;
-				}
-			}
-			if (queued == 0) {
-				return 0;
-			}
-		}
 	} else if (self->secondariescnt > 0 &&
 			   (__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
-				QUEUE_FREE_CRITICAL(qfree, self)||
-				shutdown))
+				QUEUE_FREE_CRITICAL(qfree, self)))
 	{
 		size_t i;
 		size_t req = 0;
@@ -1018,7 +1004,9 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 			squeue = self->secondaries[self->secpos[i]]->queue;
 			if (!self->failover && self->fd > 0) {
 				size_t sqfree = queue_free(squeue);
-				if (sqfree <= qfree + 10 *self->bsize ) {
+				if ((!shutdown && sqfree <= qfree + 50 *self->bsize) ||
+					(shutdown && sqfree < queue_size(squeue)))
+				{
 					squeue = NULL;
 					continue;
 				}
@@ -1076,33 +1064,45 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 	/* try to connect */
 	if (self->fd < 0) {
 		if (server_connect(self) == -1) {
+			if (shutdown && self->secondariescnt > 0) {
+				/* avoid loop on dead connections */
+				int i;
+				for (i = 0; i < self->secondariescnt; i++) {
+					/* both conditions below make sure we skip ourself */
+					if (queue_len(self->secondaries[i]->queue) > 0) {
+						return -1;
+					}
+				}
+				return 0;
+			}
 			return -1;
 		}
 	}
 
 	/* send up to batch size */
-	if (qfree == qsize) {
-		if (self->secondariescnt > 0) {
+	if (qfree == queue_size(self->queue)) {
+		if (shutdown && self->secondariescnt > 0) {
 			int i;
 			squeue = NULL;
 			for (i = 0; i < self->secondariescnt; i++) {
 				/* both conditions below make sure we skip ourself */
-				squeue = self->secondaries[self->secpos[i]]->queue;
-				if (queue_len(squeue) == 0) {
-					return 0;
-				} else {
-					break;
+				if (self != self->secondaries[i]) {
+					squeue = self->secondaries[self->secpos[i]]->queue;
+					if (queue_len(squeue) == 0) {
+						squeue = NULL;
+						continue;
+					} else {
+						break;
+					}
 				}
 			}
 			if (squeue == NULL)
 				return 0;
-			if (shutdown) {
-				/* be noisy during shutdown so we can track any slowing down
-				 * servers, possibly preventing us to shut down */
-				logerr("shutting down %s:%u: waiting for %zu metrics from %s:%u\n",
-						self->ip, self->port, queue_len(self->queue),
-						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
-			}
+			/* be noisy during shutdown so we can track any slowing down
+			 * servers, possibly preventing us to shut down */
+			logerr("shutting down %s:%u: waiting for %zu metrics from %s:%u\n",
+					self->ip, self->port, queue_len(self->queue),
+					self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
 			len = queue_dequeue_vector(self->batch, squeue, self->bsize);
 		} else {
 			return 0;
@@ -1116,6 +1116,7 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 		}
 		len = queue_dequeue_vector(self->batch, self->queue, self->bsize);
 	}
+
 	self->batch[len] = NULL;
 	metric = self->batch;
 
@@ -1196,6 +1197,39 @@ static ssize_t server_queueread(server *self, size_t qsize, char *idle, char shu
 		return len;
 }
 
+static int server_poll(server *self)
+{
+	if (self->fd > 0) {
+		int ret;
+		struct pollfd ufds[1];
+		ufds[0].fd = self->fd;
+		ufds[0].events = POLLOUT;
+		ret = poll(ufds, 1, 10 * 1000); /* 10s */
+		if (ret < 0) {
+			logerr("poll error: %s", strerror(errno));
+			return -1;
+		} else if (ret > 0) {
+			if (ufds[0].revents & POLLOUT) {
+				return 1;
+			} else if (ufds[0].revents & POLLHUP) {
+				logerr("closed connection to %s:%u\n",
+						self->ip, self->port);
+			} else {
+				logerr("poll error event %d for connection to %s:%u\n",
+					   ufds[0].revents, self->ip, self->port);
+			}
+		} else {
+			__sync_fetch_and_add(&(self->failure), 1); /*TIMEOUT */
+			logerr("timeout for connection to %s:%u\n",
+					self->ip, self->port);
+		}
+		self->strm->strmclose(self->strm);
+		self->fd = -1;
+		return 0;
+	}
+	return 0;
+}
+
 /**
  * Reads from the queue and sends items to the remote server.  This
  * function is designed to be a thread.  Data sending is attempted to be
@@ -1209,7 +1243,6 @@ server_queuereader(void *d)
 {
 	server *self = (server *)d;
 	char idle = 0;
-	size_t qsize = queue_size(self->queue);
 	struct timeval start, stop;
 
 	char shutdown = 0;
@@ -1220,9 +1253,15 @@ server_queuereader(void *d)
 	self->alive = 1;
 
 	while (!shutdown) {
+		if (server_poll(self) == -1) {
+			usleep((300 + (rand2() % 100)) * 1000);  /* 300ms - 400ms */
+			shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
+			continue;
+		}
+
 		gettimeofday(&start, NULL);
 		shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
-		ret = server_queueread(self, qsize, &idle, shutdown);
+		ret = server_queueread(self, shutdown, &idle);
 		gettimeofday(&stop, NULL);
 		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
 		if (ret <= 0) {
@@ -1231,14 +1270,14 @@ server_queuereader(void *d)
 			usleep((300 + (rand2() % 100)) * 1000);  /* 300ms - 400ms */
 		} else if (ret < self->bsize) {
 			usleep((100 + (rand2() % 100)) * 1000);  /* 100ms - 200ms */
-		} else {
-			usleep(2 * 1000);  /* 2ms */
 		}
 	}
 
 	while (1) {
 		gettimeofday(&start, NULL);
-		ret = server_queueread(self, qsize, &idle, shutdown);
+		if ((ret = server_poll(self)) > -1) {
+			ret = server_queueread(self, shutdown, &idle);
+		}
 		gettimeofday(&stop, NULL);
 		__sync_add_and_fetch(&(self->ticks), timediff(start, stop));
 		if (ret == 0) {
