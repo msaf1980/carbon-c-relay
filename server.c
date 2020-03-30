@@ -966,7 +966,7 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 				return 0;
 			}
 		}
-	} else if (self->secondariescnt > 0 &&
+	} else if (self->secondariescnt > 0 && !shutdown && /* don't requeue when shutdown - it will do from free server */
 			   (__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
 				QUEUE_FREE_CRITICAL(qfree, self)))
 	{
@@ -1022,7 +1022,7 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 					continue;
 				}
 			}
-			if (shutdown) {
+			if (mode && MODE_DEBUG) {
 				logerr("shutting down %s:%u: waiting for requeue %zu metrics to %s:%u\n",
 						self->ip, self->port, queue_len(self->queue),
 						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
@@ -1087,9 +1087,10 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 			for (i = 0; i < self->secondariescnt; i++) {
 				/* both conditions below make sure we skip ourself */
 				squeue = self->secondaries[self->secpos[i]]->queue;
-				if (queue_len(squeue) == 0) {
-					return 0;
+				if (queue_len(self->secondaries[self->secpos[i]]->queue) == 0) {
+					continue;
 				} else {
+					squeue = self->secondaries[self->secpos[i]]->queue;
 					break;
 				}
 			}
