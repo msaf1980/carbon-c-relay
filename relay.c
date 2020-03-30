@@ -517,7 +517,7 @@ main(int argc, char * const argv[])
 					fprintf(stderr, "error: shutdown timeout needs to be a number >0\n");
 					do_usage(argv[0], 1);
 				}
-				shutdown_timeout = val * 1000000LL;
+				shutdown_timeout = val;
 			} break;
 			case 'L':
 				maxstalls = atoi(optarg);
