@@ -55,12 +55,13 @@
 #endif
 
 #define FAIL_WAIT_TIME   6  /* 6 * 250ms = 1.5s */
-#define DISCONNECT_WAIT_TIME   12  /* 12 * 250ms = 3s */
+#define DISCONNECT_WAIT_TIME   10  /* 10 * 250ms = 2.5s */
 #define QUEUE_FREE_CRITICAL(FREE, s)  (FREE < __sync_fetch_and_add(&(s->qfree_threshold), 0))
 
 int queuefree_threshold_start = 0;
 int queuefree_threshold_end = 0;
 long long shutdown_timeout = 120; /* 120s */
+int send_timeout = 10; /* 10s */
 
 typedef struct _z_strm {
 	ssize_t (*strmwrite)(struct _z_strm *, const void *, size_t);
@@ -773,7 +774,7 @@ char server_connect(server *self)
 			 * linux >= 2.6.37
 			 * the 10 seconds is in line with the SO_SNDTIMEO
 			 * set on the socket below */
-			args = 10000 + (rand() % 300);
+			args = send_timeout * 1000;
 			if (setsockopt(self->fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
 						&args, sizeof(args)) != 0)
 				; /* ignore */
@@ -947,13 +948,15 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 		/* if we're idling, close the TCP connection, this allows us
 		 * to reduce connections, while keeping the connection alive
 		 * if we're writing a lot */
-		if (self->ctype == CON_TCP && self->fd >= 0 &&
-				*idle++ > DISCONNECT_WAIT_TIME)
+		if (self->ctype == CON_TCP && *idle++ > DISCONNECT_WAIT_TIME)
 		{
-			self->strm->strmclose(self->strm);
-			self->fd = -1;
+			if (self->fd >= 0) {
+				self->strm->strmclose(self->strm);
+				self->fd = -1;
+				*idle = 0;
+			}
 		}
-		if (*idle == 1)
+		if (*idle == 1 && self->fd >= 0)
 			/* ensure blocks are pushed out as soon as we're idling,
 			 * this allows compressors to benefit from a larger
 			 * stream of data to gain better compression */
@@ -962,19 +965,6 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 		 * connect, this avoids unnecessary queue moves */
 		if (self->secondariescnt == 0)
 			return 0;
-		else {
-			int i;
-			int queued = 0;
-			for (i = 0; i < self->secondariescnt; i++) {
-				if (self != self->secondaries[i] && queue_len(self->secondaries[i]->queue) > 0) {
-					queued = 1;
-					break;
-				}
-			}
-			if (queued == 0) {
-				return 0;
-			}
-		}
 	} else if (self->secondariescnt > 0 && !shutdown && /* don't requeue when shutdown - it will do from free server */
 			   (__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
 				QUEUE_FREE_CRITICAL(qfree, self)))
@@ -1058,20 +1048,6 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 			free((char *)*metric);
 			__sync_add_and_fetch(&(self->dropped), 1);
 		}
-		if (req == 0) {
-			/* we couldn't do anything, take it easy for a bit */
-			if (__sync_add_and_fetch(&(self->failure), 0) > 1) {
-				/* This is a compound because I can't seem to figure
-				 * out how to atomically just "set" a variable.
-				 * It's not bad when in the middle there is a ++,
-				 * all that counts is that afterwards its > 0. */
-				__sync_and_and_fetch(&(self->failure), 0);
-				__sync_add_and_fetch(&(self->failure), 1);
-			}
-		} else if (QUEUE_FREE_CRITICAL(qfree, self) && !shutdown) {
-			/* skip overloaded destination, if secondaries exist */
-			return -1;
-		}
 	}
 	if (__sync_add_and_fetch(&(self->failure), 0) > FAIL_WAIT_TIME) {
 		/* avoid overflowing */
@@ -1154,10 +1130,6 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 				self->strm->strmclose(self->strm);
 				self->fd = -1;
 				break;
-			} else if (!__sync_bool_compare_and_swap(&(self->failure), 0, 0)) {
-				if (self->ctype != CON_UDP)
-					logerr("server %s:%u: OK\n", self->ip, self->port);
-				__sync_and_and_fetch(&(self->failure), 0);
 			}
 			__sync_add_and_fetch(&(self->metrics), 1);
 
@@ -1172,6 +1144,11 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 						 "incomplete write"));
 			self->strm->strmclose(self->strm);
 			self->fd = -1;
+		} else {
+			if (__sync_fetch_and_add(&(self->failure), 0) > 0) {
+				if (__sync_sub_and_fetch(&(self->failure), 1) == 0 && self->ctype != CON_UDP)
+					logerr("server %s:%u: OK\n", self->ip, self->port);
+			}
 		}
 
 		/* reset metric location for requeue metrics from possible unsended buffer
@@ -1255,7 +1232,7 @@ server_queuereader(void *d)
 
 	char shutdown = 0;
 	ssize_t ret;
-	int poll_timeout = 10 * 1000; /* 10s */
+	int poll_timeout = send_timeout * 1000;
 
 	self->running = 1;
 	self->alive = 1;
