@@ -926,194 +926,17 @@ static inline int server_secpos_alloc(server *self)
 	return 0;
 }
 
-static ssize_t server_queueread(server *self, char shutdown, char *idle)
+static ssize_t server_queuesend(server *self, queue *squeue, server *source)
 {
+	const char **metric = self->batch;
+	const char **p;
 	size_t len;
 	ssize_t slen;
-	const char **p;
-	queue *squeue;
-	size_t qfree;
-	const char **metric = self->batch;
+
 	*metric = NULL;
 
-	qfree = queue_free(self->queue);
-	if (self->secondariescnt > 0 && ! QUEUE_FREE_CRITICAL(qfree, self)) {
-		/* threshold for cancel rebalance */
-		if (__sync_bool_compare_and_swap(&(self->qfree_threshold), queuefree_threshold_end, queuefree_threshold_start))
-			logerr("throttle end %s:%u: waiting for %zu metrics\n",
-					self->ip, self->port, queue_len(self->queue));
-	}
-	if (qfree == queue_size(self->queue)) {
-		/* if we're idling, close the TCP connection, this allows us
-		 * to reduce connections, while keeping the connection alive
-		 * if we're writing a lot */
-		if (self->ctype == CON_TCP && self->fd >= 0 &&
-				*idle++ > DISCONNECT_WAIT_TIME)
-		{
-			self->strm->strmclose(self->strm);
-			self->fd = -1;
-		}
-		if (*idle == 1)
-			/* ensure blocks are pushed out as soon as we're idling,
-			 * this allows compressors to benefit from a larger
-			 * stream of data to gain better compression */
-			self->strm->strmflush(self->strm);
-		/* if we are in failure mode, keep checking if we can
-		 * connect, this avoids unnecessary queue moves */
-		if (self->secondariescnt == 0)
-			return 0;
-	} else if (self->secondariescnt > 0 && !shutdown && /* don't requeue when shutdown - it will do from free server */
-			   (__sync_add_and_fetch(&(self->failure), 0) >= FAIL_WAIT_TIME ||
-				QUEUE_FREE_CRITICAL(qfree, self)))
-	{
-		size_t i;
-		size_t req = 0;
+	len = queue_dequeue_vector(self->batch, squeue, self->bsize);
 
-		if (self->secondariescnt > 0) {
-			if (!self->failover) {
-				/* randomise the failover list such that in the
-				 * grand scheme of things we don't punish the first
-				 * working server in the list to deal with all
-				 * traffic meant for a now failing server */
-				for (i = 0; i < self->secondariescnt; i++) {
-					size_t n = rand2() % (self->secondariescnt - i);
-					if (n != i) {
-						size_t t = self->secpos[n];
-						self->secpos[n] = self->secpos[i];
-						self->secpos[i] = t;
-					}
-				}
-			}
-		}
-
-		if (QUEUE_FREE_CRITICAL(qfree, self)) {
-			/* destination overloaded, set threshold for destination recovery */
-			if (__sync_bool_compare_and_swap(&(self->qfree_threshold), queuefree_threshold_start, queuefree_threshold_end))
-				logerr("throttle %s:%u: waiting for %zu metrics\n",
-						self->ip, self->port, queue_len(self->queue));
-		}
-
-		/* offload data from our queue to our secondaries
-		 * when doing so, observe the following:
-		 * - avoid nodes that are in failure mode
-		 * - avoid nodes which queues are >= critical_len
-		 * when no nodes remain given the above
-		 * - send to nodes which queue size < critical_len
-		 * where there are no such nodes
-		 * - do nothing (we will overflow, since we can't send
-		 *   anywhere) */
-		*metric = NULL;
-		squeue = NULL;
-		for (i = 0; i < self->secondariescnt; i++) {
-			/* both conditions below make sure we skip ourself */
-			if (self == self->secondaries[self->secpos[i]] ||
-				__sync_add_and_fetch(&(self->secondaries[self->secpos[i]]->failure), 0))
-				continue;
-			squeue = self->secondaries[self->secpos[i]]->queue;
-			if (!self->failover && self->fd > 0) {
-				size_t sqfree = queue_free(squeue);
-				if (sqfree <= qfree + 10 *self->bsize ) {
-					squeue = NULL;
-					continue;
-				}
-			}
-			if (mode && MODE_DEBUG) {
-				logerr("shutting down %s:%u: waiting for requeue %zu metrics to %s:%u\n",
-						self->ip, self->port, queue_len(self->queue),
-						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
-			}
-			/* send up to batch size of our queue to this queue */
-			len = queue_dequeue_vector(
-					self->batch, self->queue, self->bsize);
-			self->batch[len] = NULL;
-			metric = self->batch;
-
-			for (; *metric != NULL; metric++) {
-				if (!queue_putback(squeue, *metric))
-					break;
-				req++;
-			}
-			/* try to put back stuff that didn't fit */
-			for (; *metric != NULL; metric++)
-				if (!queue_putback(self->queue, *metric))
-					break;
-		}
-		__sync_add_and_fetch(&(self->requeue), req);
-		for (; *metric != NULL; metric++) {
-			if (mode & MODE_DEBUG)
-				logerr("dropping metric: %s", *metric);
-			free((char *)*metric);
-			__sync_add_and_fetch(&(self->dropped), 1);
-		}
-	}
-	if (__sync_add_and_fetch(&(self->failure), 0) > FAIL_WAIT_TIME) {
-		/* avoid overflowing */
-		__sync_sub_and_fetch(&(self->failure), 1);
-	}
-	/* at this point we've got work to do, if we're instructed to
-	 * shut down, however, try to get everything out of the door
-	 * (until we fail, see top of this loop) */
-
-	/* try to connect */
-	if (self->fd < 0) {
-		if (server_connect(self) == -1) {
-			if (self->secondariescnt > 0) {
-				int i;
-				int queued = 0;
-				for (i = 0; i < self->secondariescnt; i++) {
-					if (self != self->secondaries[i] && queue_len(self->secondaries[i]->queue) > 0) {
-						queued = 1;
-						break;
-					}
-				}
-				if (queued == 0) {
-					return 0;
-				}
-			}
-			return -1;
-		}
-	}
-
-	/* send up to batch size */
-	if (qfree == queue_size(self->queue)) {
-		if (shutdown && self->secondariescnt > 0 && __sync_bool_compare_and_swap(&(self->failure), 0, 0)) {
-			int i;
-			squeue = NULL;
-			for (i = 0; i < self->secondariescnt; i++) {
-				/* both conditions below make sure we skip ourself */
-				squeue = self->secondaries[self->secpos[i]]->queue;
-				if (queue_len(self->secondaries[self->secpos[i]]->queue) == 0) {
-					continue;
-				} else {
-					squeue = self->secondaries[self->secpos[i]]->queue;
-					break;
-				}
-			}
-			if (squeue == NULL)
-				return 0;
-			/* be noisy during shutdown so we can track any slowing down
-			 * servers, possibly preventing us to shut down */
-			len = queue_dequeue_vector(self->batch, squeue, self->bsize);
-			if (len > 0) {
-				logerr("shutting down %s:%u: waiting for %zu metrics from %s:%u\n",
-						self->ip, self->port, queue_len(squeue),
-						self->secondaries[self->secpos[i]]->ip, self->secondaries[self->secpos[i]]->port);
-			}
-		} else {
-			if (__sync_and_and_fetch(&(self->failure), 0) > 0) {
-				__sync_sub_and_fetch(&(self->failure), 1);
-			}
-			return 0;
-		}
-	} else {
-		if (shutdown) {
-			/* be noisy during shutdown so we can track any slowing down
-			 * servers, possibly preventing us to shut down */
-			logerr("shutting down %s:%u: waiting for %zu metrics\n",
-					self->ip, self->port, queue_len(self->queue));
-		}
-		len = queue_dequeue_vector(self->batch, self->queue, self->bsize);
-	}
 	self->batch[len] = NULL;
 	metric = self->batch;
 
@@ -1182,23 +1005,131 @@ static ssize_t server_queueread(server *self, char shutdown, char *idle)
 		}
 		/* put back stuff we couldn't process */
 		for (; *metric != NULL; metric++) {
-			if (!queue_putback(self->queue, *metric)) {
+			if (!queue_putback(squeue, *metric)) {
 				if (mode & MODE_DEBUG)
 					logerr("server %s:%u: dropping metric: %s",
-							self->ip, self->port,
+							source->ip, source->port,
 							*metric + sizeof(size_t));
 				free((char *)*metric);
-				__sync_add_and_fetch(&(self->dropped), 1);
+				__sync_add_and_fetch(&(source->dropped), 1);
 			}
+		}
+	}
+	if (self->fd == -1)
+		return -1;
+	else
+		return (ssize_t) len;
+}
+
+static ssize_t server_queueread(server *self, char shutdown, char *idle)
+{
+	ssize_t len, ret = 0;
+	queue *squeue;
+	size_t qfree;
+	int i;
+
+	qfree = queue_free(self->queue);
+	if (self->secondariescnt > 0 && ! QUEUE_FREE_CRITICAL(qfree, self)) {
+		/* threshold for cancel rebalance */
+		if (__sync_bool_compare_and_swap(&(self->qfree_threshold), queuefree_threshold_end, queuefree_threshold_start))
+			logerr("throttle end %s:%u: waiting for %zu metrics\n",
+					self->ip, self->port, queue_len(self->queue));
+	}
+	if (qfree == queue_size(self->queue)) {
+		/* if we're idling, close the TCP connection, this allows us
+		 * to reduce connections, while keeping the connection alive
+		 * if we're writing a lot */
+		if (self->ctype == CON_TCP && self->fd >= 0 &&
+				*idle++ > DISCONNECT_WAIT_TIME)
+		{
+			self->strm->strmclose(self->strm);
+			self->fd = -1;
+		}
+		if (*idle == 1)
+			/* ensure blocks are pushed out as soon as we're idling,
+			 * this allows compressors to benefit from a larger
+			 * stream of data to gain better compression */
+			self->strm->strmflush(self->strm);
+		/* if we are in failure mode, keep checking if we can
+		 * connect, this avoids unnecessary queue moves */
+		if (self->secondariescnt == 0)
+			return 0;
+	}  else if (self->secondariescnt > 0 && QUEUE_FREE_CRITICAL(qfree, self)) {
+			/* destination overloaded, set threshold for destination recovery */
+			if (__sync_bool_compare_and_swap(&(self->qfree_threshold), queuefree_threshold_start, queuefree_threshold_end))
+				logerr("throttle %s:%u: waiting for %zu metrics\n",
+					   self->ip, self->port, queue_len(self->queue));
+	}
+
+	if (__sync_add_and_fetch(&(self->failure), 0) > FAIL_WAIT_TIME) {
+		/* avoid overflowing */
+		__sync_sub_and_fetch(&(self->failure), 1);
+	}
+	/* at this point we've got work to do, if we're instructed to
+	 * shut down, however, try to get everything out of the door
+	 * (until we fail, see top of this loop) */
+
+	/* try to connect */
+	if (self->fd < 0) {
+		if (server_connect(self) == -1) {
+			if (self->secondariescnt > 0) {
+				int i;
+				int queued = 0;
+				for (i = 0; i < self->secondariescnt; i++) {
+					if (self != self->secondaries[i] && queue_len(self->secondaries[i]->queue) > 0) {
+						queued = 1;
+						break;
+					}
+				}
+				if (queued == 0) {
+					return 0;
+				}
+			}
+			return -1;
+		}
+	}
+
+	/* send up to batch size */
+	if (qfree < queue_size(self->queue)) {
+		if (shutdown) {
+			/* be noisy during shutdown so we can track any slowing down
+			 * servers, possibly preventing us to shut down */
+			logerr("shutting down %s:%u: waiting for %zu metrics\n",
+					self->ip, self->port, queue_len(self->queue));
+		}
+		ret = server_queuesend(self, self->queue, self);
+	}
+	len = ret;
+	for (i = 0; ret >= 0 && i < self->secondariescnt; i++) {
+		/* read from busy secondaries */
+		size_t sqfree;
+		if (self == self->secondaries[i])
+			continue;
+
+		squeue = self->secondaries[self->secpos[i]]->queue;
+		if (shutdown ||
+			__sync_add_and_fetch(&(self->secondaries[i]->failure), 0) > FAIL_WAIT_TIME ||
+			((sqfree = queue_free(squeue)) + 4 * self->bsize < qfree  && QUEUE_FREE_CRITICAL(sqfree, self->secondaries[i]))) {
+			/* be noisy during shutdown so we can track any slowing down
+			 * servers, possibly preventing us to shut down */
+			if (shutdown)
+				logerr("shutting down %s:%u: waiting for %zu metrics from %s:%u\n",
+						self->ip, self->port, queue_len(squeue),
+						self->secondaries[i]->ip, self->secondaries[i]->port);
+			ret = server_queuesend(self, squeue, self->secondaries[i]);
+			if (ret < 0)
+				break;
+			__sync_add_and_fetch(&(self->secondaries[i]->requeue), ret);
+			len += ret;
 		}
 	}
 
 	*idle = 0;
 
-	if (self->fd == -1)
-		return -1;
-	else
+	if (ret >= 0)
 		return len;
+	else
+		return -1;
 }
 
 static int server_poll(server *self, int timeout_ms)
