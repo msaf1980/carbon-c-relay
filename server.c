@@ -60,6 +60,7 @@
 
 int queuefree_threshold_start = 0;
 int queuefree_threshold_end = 0;
+int send_timeout = 10;
 long long shutdown_timeout = 120; /* 120s */
 
 typedef struct _z_strm {
@@ -1189,7 +1190,7 @@ server_queuereader(void *d)
 
 	int shutdown = 0;
 	ssize_t ret;
-	int poll_timeout = 10 * 1000; /* 10s */
+	int poll_timeout = send_timeout * 1000; /* 10s */
 
 	self->running = 1;
 	self->alive = 1;
