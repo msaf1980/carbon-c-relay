@@ -1491,8 +1491,20 @@ server_cmp(server *s, struct addrinfo *saddr, const char *ip, unsigned short por
 	return 1;  /* not equal */
 }
 
+/*
+ * For unit testing
+ * */
 void
 server_set_port(server *s, unsigned short port) {
+	struct addrinfo *ai = s->saddr;
+	while (ai != NULL) {
+		if (ai->ai_addr->sa_family == AF_INET) {
+			((struct sockaddr_in*)ai->ai_addr)->sin_port = htons(port);
+		} else if (ai->ai_addr->sa_family == AF_INET6) {
+		    ((struct sockaddr_in6*)ai->ai_addr)->sin6_port = htons(port);
+		}
+		ai = ai->ai_next;
+	}
 	s->port = port;
 }
 
