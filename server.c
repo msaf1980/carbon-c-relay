@@ -1099,7 +1099,7 @@ static ssize_t server_queueread(server *self, int shutdown, char *idle)
 
 		squeue = self->secondaries[i]->queue;
 		if (shutdown ||
-			__sync_add_and_fetch(&(self->secondaries[i]->failure), 0) > FAIL_WAIT_TIME ||
+			__sync_add_and_fetch(&(self->secondaries[i]->failure), 0) >= FAIL_WAIT_TIME ||
 			((sqfree = queue_free(squeue)) + 4 * self->bsize < qfree  && QUEUE_FREE_CRITICAL(sqfree, self->secondaries[i]))) {
 			/* be noisy during shutdown so we can track any slowing down
 			 * servers, possibly preventing us to shut down */
