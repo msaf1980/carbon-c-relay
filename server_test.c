@@ -36,13 +36,16 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+
 #include "queue.h"
+#include "relay.h"
 #include "consistent-hash.h"
 #include "router.h"
 #include "server.h"
-#include "relay.h"
 #include "md5.h"
 #include "conffile.h"
+
+#include "receiver_mock.h"
 
 int
 relaylog(enum logdst dest, const char *fmt, ...)
@@ -52,18 +55,34 @@ relaylog(enum logdst dest, const char *fmt, ...)
 	return 0;
 }
 
+/*
+int
+relaylog(enum logdst dest, const char *fmt, ...)
+{
+	va_list ap;
+	int ret;
+
+	va_start(ap, fmt);
+
+	ret = vfprintf(stdout, fmt, ap);
+	fflush(stdout);
+
+	return ret;
+}
+*/
+
 router *router_new(void);
 char *router_validate_address(router *rtr, char **retip, unsigned short *retport, void **retsaddr, void **rethint, char *ip, con_proto proto);
-queue *server_queue(server *s);
 void server_set_port(server *s, unsigned short port);
 
 #include "minunit.h"
 
 #define DESTS_SIZE 32
+#define BIND_ADDR "127.0.0.1"
 
 char testdir[256];
 
-const char *m = "bla.bla.bla";
+const char *m = "bla.bla.bla\n";
 
 unsigned char mode = 0;
 char relay_hostname[256];
@@ -77,36 +96,69 @@ struct _reader {
 	queue *queue;
 } reader;
 
-MU_TEST_STEP(test_server_send, char*) {
+typedef struct {
+	char *name;
+	size_t queuesize;
+	size_t batchsize;
+	router *rtr;
+	receiver **receivers;
+} router_param;
+
+void router_param_set(router_param *p, const char *name, size_t queuesize, size_t batchsize)
+{
+	p->name = strdup(name);
+	p->queuesize = queuesize;
+	p->batchsize = batchsize;
+	p->receivers = NULL;
+	p->rtr = NULL;
+}
+
+/* cleanup after test */
+void router_param_cleanup(router *rtr, router_param *param, char freename)
+{
+	receiver **r = param->receivers;
+	if (r != NULL) {
+		while (*r != NULL) {
+			receiver_stop(*r);
+			receiver_free(*r);
+			r++;
+		}
+		free(param->receivers);
+		param->receivers = NULL;
+	}
+
+	if (rtr != NULL) {
+		listener *lsnr = router_get_listeners(rtr);
+		while (lsnr != NULL) {
+			if (lsnr->saddrs != NULL) {
+				freeaddrinfo(lsnr->saddrs);
+			}
+			lsnr = lsnr->next;
+		}
+		router_free(rtr);
+	}
+
+	if (freename) {
+		free(param->name);
+	}
+}
+
+void run_server_send(router *rtr, router_param *param)
+{
 	size_t destlen = 0, len = 0, blackholed = 0;
-	char config[280];
-	int queuesize = 100;
-	int batchsize = 10;
-	size_t send_metrics = 2 * queuesize - 4 * batchsize;
+	size_t send_metrics = 2 * param->queuesize - 4 * param->batchsize;
 	int i, j;
 	destination dests[DESTS_SIZE];
 	char *metric;
 	char *firstspace;
-	router *rtr;
 	cluster *cl;
-	size_t metrics = 0;
+	size_t queued = 0;
+	size_t sended = 0;
 	size_t dropped = 0;
 
-	queuefree_threshold_start = 1;
-	queuefree_threshold_end = 3;
-	
-	strcpy(relay_hostname, "relay");
-
-	snprintf(config, sizeof(config), "%s/%s.conf", testdir, param);
-	rtr = router_readconfig(NULL, config, 1, queuesize,
-					batchsize, 1, 600, 0, 2003);
-	if (rtr == NULL) {
-		mu_fail_step("router_readconfig failed", param);
-		return;
-	}
 	cl = router_cluster(rtr, "test");
 	if (cl == NULL) {
-		mu_fail_step("cluster test not found", param);
+		mu_fail_step("cluster test not found", param->name);
 		return;
 	}
 
@@ -121,75 +173,76 @@ MU_TEST_STEP(test_server_send, char*) {
 		} else {
 			blackholed++;
 		}
+		free(metric);
 	}
-	mu_assert_step(blackholed == 0, "router_route blackholed", param);
+	mu_assert_step(blackholed == 0, "router_route blackholed", param->name);
 
 	for (i = 0; i < cl->members.anyof->count; i++) {
-		metrics += server_get_metrics(cl->members.anyof->servers[i]) + queue_len(server_queue(cl->members.anyof->servers[i]));
+		queued += server_get_queue_len(cl->members.anyof->servers[i]);
+		sended += server_get_metrics(cl->members.anyof->servers[i]);
 		dropped += server_get_dropped(cl->members.anyof->servers[i]);
 	}
-	mu_assert_int_eq_step(send_metrics, metrics, param);
-	mu_assert_step(dropped == 0, "server_send drop", param);
-
-	router_free(rtr);
+	mu_assert_int_eq_step(send_metrics, sended + queued, param->name);
+	mu_assert_step(sended == 0, "server_send send to blackhole", param->name);
+	mu_assert_step(dropped == 0, "server_send drop", param->name);
 }
 
-MU_TEST_STEP(test_server_shutdown_timeout, char*) {
-	size_t destlen = 0, len = 0, blackholed = 0;
-	char config[280];
-	int queuesize = 100;
-	int batchsize = 10;
-	size_t send_metrics = queuesize - 3 * batchsize;
-	int i, j;
-	destination dests[DESTS_SIZE];
-	char *metric;
-	char *firstspace;
+MU_TEST_STEP(test_server_send, router_param*)
+{
 	router *rtr;
-	cluster *cl;
-	time_t start, stop;
-	unsigned long long elapsed;
-	size_t metrics = 0;
-	size_t dropped = 0;
-	int socks[32];
+	char config[280];
 
-	shutdown_timeout = 20;
 	queuefree_threshold_start = 1;
 	queuefree_threshold_end = 3;
 
 	strcpy(relay_hostname, "relay");
 
-	snprintf(config, sizeof(config), "%s/%s.conf", testdir, param);
-	rtr = router_readconfig(NULL, config, 1, queuesize,
-					batchsize, 1, 600, 0, 2003);
+	snprintf(config, sizeof(config), "%s/%s.conf", testdir, param->name);
+	rtr = router_readconfig(NULL, config, 1, param->queuesize,
+					param->batchsize, 1, 600, 0, 2003);
 	if (rtr == NULL) {
-		mu_fail_step("router_readconfig failed", param);
+		mu_fail_step("router_readconfig failed", param->name);
 		return;
 	}
 
+	run_server_send(rtr, param);
+
+	router_param_cleanup(rtr, param, 0);
+}
+
+void run_server_shutdown_timeout(router *rtr, router_param *param)
+{
+	size_t destlen = 0, len = 0, blackholed = 0;
+	size_t send_metrics = param->queuesize - 3 * param->batchsize;
+	int i, j;
+	destination dests[DESTS_SIZE];
+	char *metric;
+	char *firstspace;
+	cluster *cl;
+	time_t start, stop;
+	unsigned long long elapsed;
+	size_t sended = 0;
+	size_t queued = 0;
+	size_t dropped = 0;
+
 	cl = router_cluster(rtr, "test");
 	if (cl == NULL) {
-		mu_fail_step("cluster test not found", param);
+		mu_fail_step("cluster test not found", param->name);
 		return;
 	}
 	cl = router_cluster(rtr, "test");
 	if (cl == NULL) {
-		mu_fail_step("cluster test not found", param);
+		mu_fail_step("cluster test not found", param->name);
 		return;
 	}
 
+	param->receivers = malloc(sizeof(receiver*) * (cl->members.anyof->count + 1));
 	for (i = 0; i < cl->members.anyof->count; i++) {
-		socklen_t addr_len;
-		socks[i] = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		struct sockaddr_in addr;
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(0); /* исправлено */
-		addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		if (bind(socks[i], (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-			mu_fail_step("bind", param);
-		}
-		getsockname(socks[i], (struct sockaddr*)&addr, &addr_len);
-		server_set_port(cl->members.anyof->servers[i], addr.sin_port);
+		param->receivers[i] = receiver_new(BIND_ADDR, 0, send_metrics, 1, 0);
+		receiver_start(param->receivers[i], 1);
+		server_set_port(cl->members.anyof->servers[i], receiver_get_port(param->receivers[i]));
 	}
+	param->receivers[i] = NULL;
 
 	for (i = 0; i < cl->members.anyof->count; i++) {
 		server_start(cl->members.anyof->servers[i]);
@@ -205,31 +258,162 @@ MU_TEST_STEP(test_server_shutdown_timeout, char*) {
 		} else {
 			blackholed++;
 		}
+		free(metric);
 	}
-	mu_assert_step(blackholed == 0, "router_route blackholed", param);
 	start = time(NULL);
 	router_shutdown(rtr);
 	stop = time(NULL);
 	elapsed = stop - start;
-	mu_assert_step(elapsed < shutdown_timeout + 20, "router_shutdown timeout", param);
+	mu_assert_step(elapsed < shutdown_timeout + 20, "router_shutdown timeout", param->name);
+	mu_assert_step(blackholed == 0, "router_route blackholed", param->name);
+
+	mu_assert_int_eq_step(0, dropped, param->name);
 
 	for (i = 0; i < cl->members.anyof->count; i++) {
-		metrics += server_get_metrics(cl->members.anyof->servers[i]) + queue_len(server_queue(cl->members.anyof->servers[i]));
+		queued += server_get_queue_len(cl->members.anyof->servers[i]);
+		sended += server_get_metrics(cl->members.anyof->servers[i]);
 		dropped += server_get_dropped(cl->members.anyof->servers[i]);
 	}
-	mu_assert_int_eq_step(0, dropped, param);
-	mu_assert_int_eq_step(send_metrics, metrics, param);
+	mu_assert_int_eq_step(send_metrics, sended + queued, param->name);
+	mu_assert_step(sended == 0, "server_send send to blackhole", param->name);
+	mu_assert_step(dropped == 0, "server_send drop", param->name);
+}
 
-	router_free(rtr);
+MU_TEST_STEP(test_server_shutdown_timeout, router_param*)
+{
+	router *rtr;
+	char config[280];
+
+	queuefree_threshold_start = 1;
+	queuefree_threshold_end = 3;
+	send_timeout = 1;
+	shutdown_timeout = 10;
+
+	strcpy(relay_hostname, "relay");
+
+	snprintf(config, sizeof(config), "%s/%s.conf", testdir, param->name);
+	rtr = router_readconfig(NULL, config, 1, param->queuesize,
+					param->batchsize, 1, 600, 0, 2003);
+	if (rtr == NULL) {
+		mu_fail_step("router_readconfig failed", param->name);
+		return;
+	}
+
+	run_server_shutdown_timeout(rtr, param);
+
+	router_param_cleanup(rtr, param, 0);
+}
+
+void run_server_queuereader(router *rtr, router_param *param)
+{
+	size_t destlen = 0, len = 0, blackholed = 0;
+	size_t send_metrics = param->queuesize - 3 * param->batchsize;
+	int i, j;
+	destination dests[DESTS_SIZE];
+	char *metric;
+	char *firstspace;
+	cluster *cl;
+	time_t start, stop;
+	unsigned long long elapsed;
+	size_t sended = 0;
+	size_t queued = 0;
+	size_t dropped = 0;
+
+	cl = router_cluster(rtr, "test");
+	if (cl == NULL) {
+		mu_fail_step("cluster test not found", param->name);
+		return;
+	}
+	cl = router_cluster(rtr, "test");
+	if (cl == NULL) {
+		mu_fail_step("cluster test not found", param->name);
+		return;
+	}
+
+	param->receivers = malloc(sizeof(receiver*) * (cl->members.anyof->count + 1));
+	for (i = 0; i < cl->members.anyof->count; i++) {
+		char noread = (i == 0);
+		param->receivers[i] = receiver_new(BIND_ADDR, 0, send_metrics, noread, 0);
+		receiver_start(param->receivers[i], 0);
+		server_set_port(cl->members.anyof->servers[i], receiver_get_port(param->receivers[i]));
+	}
+	param->receivers[i] = NULL;
+
+	for (i = 0; i < cl->members.anyof->count; i++) {
+		server_start(cl->members.anyof->servers[i]);
+	}
+	for (i = 0; i < send_metrics; i++) {
+		metric = strdup(m);
+		firstspace = metric + strlen(metric);
+		if (router_route(rtr, dests, &len, DESTS_SIZE, "127.0.0.1", metric, firstspace, 1) == 0) {
+			for (j = 0; j < len; j++) {
+				server_send(dests[j].dest, dests[j].metric, 0);
+			}
+			destlen += len;
+		} else {
+			blackholed++;
+		}
+		free(metric);
+	}
+	sleep(1);
+	for (i = 0; i < cl->members.anyof->count; i++) {
+		queued += server_get_queue_len(cl->members.anyof->servers[i]);
+		sended += server_get_metrics(cl->members.anyof->servers[i]);
+		dropped += server_get_dropped(cl->members.anyof->servers[i]);
+	}
+	mu_assert_int_eq_step(send_metrics, sended + queued, param->name);
+	mu_assert_step(queued == 0, "server_send queued", param->name);
+	mu_assert_step(dropped == 0, "server_send drop", param->name);
+
+	start = time(NULL);
+	router_shutdown(rtr);
+	stop = time(NULL);
+	elapsed = stop - start;
+	mu_assert_step(elapsed < shutdown_timeout + 20, "router_shutdown timeout", param->name);
+	mu_assert_step(blackholed == 0, "router_route blackholed", param->name);
+
+}
+
+MU_TEST_STEP(test_server_queuereader, router_param*)
+{
+	router *rtr;
+	char config[280];
+
+	queuefree_threshold_start = 1;
+	queuefree_threshold_end = 3;
+	send_timeout = 1;
+	shutdown_timeout = 10;
+
+	strcpy(relay_hostname, "relay");
+
+	snprintf(config, sizeof(config), "%s/%s.conf", testdir, param->name);
+	rtr = router_readconfig(NULL, config, 1, param->queuesize,
+					param->batchsize, 1, 600, 0, 2003);
+	if (rtr == NULL) {
+		mu_fail_step("router_readconfig failed", param->name);
+		return;
+	}
+
+	run_server_queuereader(rtr, param);
+
+	router_param_cleanup(rtr, param, 0);
 }
 
 MU_TEST_SUITE(server_send_suite) {
-	int i, n = 2;
-	char *steps[] = { "failover2", "any_of2" };
+	volatile size_t i;
+	size_t n = 2;
+	router_param steps[2];
+	router_param_set(&steps[0], "failover2", 100, 10);
+	router_param_set(&steps[1], "any_of2",   100, 10);
 
 	for (i = 0; i < n; i++) {
-		MU_RUN_TEST_STEP(test_server_send, steps[i]);
-		MU_RUN_TEST_STEP(test_server_shutdown_timeout, steps[i]);
+		MU_RUN_TEST_STEP(test_server_send, &steps[i]);
+		MU_RUN_TEST_STEP(test_server_shutdown_timeout, &steps[i]);
+		MU_RUN_TEST_STEP(test_server_queuereader, &steps[i]);
+	}
+
+	for (i = 0; i < sizeof(steps) / sizeof(router_param); i++) {
+		router_param_cleanup(NULL, &steps[i], 1);
 	}
 }
 

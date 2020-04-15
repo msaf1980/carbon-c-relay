@@ -99,7 +99,7 @@ EXTRA_DIST = \
 noinst_PROGRAMS = test_router test_server
 test_router_SOURCES = router_test.c $(SOURCES)
 test_router_LDADD = $(RELAY_LIBS)
-test_server_SOURCES = server_test.c $(SOURCES)
+test_server_SOURCES = server_test.c receiver_mock.c $(SOURCES)
 test_server_LDADD = $(RELAY_LIBS)
 
 CRTESTS = \

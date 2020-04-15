@@ -182,7 +182,8 @@ sendmetric_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 am_test_router_OBJECTS = router_test.$(OBJEXT) $(am__objects_1)
 test_router_OBJECTS = $(am_test_router_OBJECTS)
 test_router_DEPENDENCIES = $(am__DEPENDENCIES_2)
-am_test_server_OBJECTS = server_test.$(OBJEXT) $(am__objects_1)
+am_test_server_OBJECTS = server_test.$(OBJEXT) receiver_mock.$(OBJEXT) \
+	$(am__objects_1)
 test_server_OBJECTS = $(am_test_server_OBJECTS)
 test_server_DEPENDENCIES = $(am__DEPENDENCIES_2)
 AM_V_P = $(am__v_P_@AM_V@)
@@ -205,10 +206,11 @@ am__depfiles_remade = ./$(DEPDIR)/aggregator.Po \
 	./$(DEPDIR)/conffile.tab.Po ./$(DEPDIR)/conffile.yy.Po \
 	./$(DEPDIR)/consistent-hash.Po ./$(DEPDIR)/dispatcher.Po \
 	./$(DEPDIR)/faketime.Plo ./$(DEPDIR)/md5.Po \
-	./$(DEPDIR)/queue.Po ./$(DEPDIR)/receptor.Po \
-	./$(DEPDIR)/relay.Po ./$(DEPDIR)/router.Po \
-	./$(DEPDIR)/router_test.Po ./$(DEPDIR)/sendmetric.Po \
-	./$(DEPDIR)/server.Po ./$(DEPDIR)/server_test.Po
+	./$(DEPDIR)/queue.Po ./$(DEPDIR)/receiver_mock.Po \
+	./$(DEPDIR)/receptor.Po ./$(DEPDIR)/relay.Po \
+	./$(DEPDIR)/router.Po ./$(DEPDIR)/router_test.Po \
+	./$(DEPDIR)/sendmetric.Po ./$(DEPDIR)/server.Po \
+	./$(DEPDIR)/server_test.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -469,7 +471,7 @@ EXTRA_DIST = \
 
 test_router_SOURCES = router_test.c $(SOURCES)
 test_router_LDADD = $(RELAY_LIBS)
-test_server_SOURCES = server_test.c $(SOURCES)
+test_server_SOURCES = server_test.c receiver_mock.c $(SOURCES)
 test_server_LDADD = $(RELAY_LIBS)
 CRTESTS = issue10 issue27 issue117 issue156 issue157 issue163 issue165 \
 	issue180 issue184 issue202 issue213 issue218 issue228 issue235 \
@@ -669,6 +671,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/faketime.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/md5.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/queue.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/receiver_mock.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/receptor.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/relay.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/router.Po@am__quote@ # am--include-marker
@@ -1041,6 +1044,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/faketime.Plo
 	-rm -f ./$(DEPDIR)/md5.Po
 	-rm -f ./$(DEPDIR)/queue.Po
+	-rm -f ./$(DEPDIR)/receiver_mock.Po
 	-rm -f ./$(DEPDIR)/receptor.Po
 	-rm -f ./$(DEPDIR)/relay.Po
 	-rm -f ./$(DEPDIR)/router.Po
@@ -1106,6 +1110,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/faketime.Plo
 	-rm -f ./$(DEPDIR)/md5.Po
 	-rm -f ./$(DEPDIR)/queue.Po
+	-rm -f ./$(DEPDIR)/receiver_mock.Po
 	-rm -f ./$(DEPDIR)/receptor.Po
 	-rm -f ./$(DEPDIR)/relay.Po
 	-rm -f ./$(DEPDIR)/router.Po
