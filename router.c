@@ -833,7 +833,8 @@ router_add_server(
 			w->next = NULL;
 			w->server = newserver;
 		} else if (cl->type == ANYOF ||
-				cl->type == FAILOVER)
+				cl->type == FAILOVER ||
+				cl->type == LB)
 		{
 			if (cl->members.anyof == NULL) {
 				cl->members.anyof = ra_malloc(ret->a, sizeof(serverlist));
@@ -851,8 +852,8 @@ router_add_server(
 			}
 			if (w == NULL) {
 				snprintf(errbuf, sizeof(errbuf), "malloc failed for %s %s",
-						cl->type == ANYOF ? "any_of" :
-						"failover", ip);
+						cl->type == FAILOVER ? "failover" :
+						"any_of", ip);
 				freeaddrinfo(saddrs);
 				if (hint)
 					free(hint);
@@ -897,7 +898,7 @@ router_add_cluster(router *r, cluster *cl)
 	last->next = cl;
 
 	/* post checks/fixups */
-	if (cl->type == ANYOF || cl->type == FAILOVER) {
+	if (cl->type == ANYOF || cl->type == FAILOVER || cl->type == LB) {
 		size_t i = 0;
 		cl->members.anyof->servers =
 			ra_malloc(r->a, sizeof(server *) * cl->members.anyof->count);
@@ -2920,6 +2921,15 @@ router_route_intern(
 						(*curlen)++;
 						wassent = 1;
 					}	break;
+					case LB: {
+						/* take first server */
+						ret[*curlen].dest = d->cl->members.anyof->servers[0];
+
+						produce_metric(ret[*curlen]);
+						set_metric(ret[*curlen]);
+						(*curlen)++;
+						wassent = 1;
+					}       break;
 					case CARBON_CH:
 					case FNV1A_CH:
 					case JUMP_CH: {
@@ -3317,7 +3327,8 @@ router_test_intern(char *metric, char *firstspace, route *routes)
 						}
 					}	break;
 					case FAILOVER:
-					case ANYOF: {
+					case ANYOF:
+					case LB: {
 						unsigned int hash;
 
 						fprintf(stdout, "    %s(%s)\n",
