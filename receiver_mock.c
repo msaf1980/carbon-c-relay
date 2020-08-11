@@ -102,6 +102,7 @@ size_t receiver_connection(receiver *r, connection *c)
 	}
 	if (ret == 0 ||
 		(ret == -1 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+		fprintf(stderr, "connection closed: %d with error %s\n", c->sock, strerror(errno));
 		close(c->sock);
 		r->conns[c->sock] = NULL;
 		free(c);
@@ -155,15 +156,7 @@ receiver_dispatch(void *d)
 			size_t len = nfds;
 			i = len;
 			for (i = 1; i < len; i++) {
-				if (ufds[i].revents & POLLHUP || ufds[i].revents & POLLNVAL || ufds[i].revents & POLLERR) {
-					/* closing connection */
-					connection *c = r->conns[ufds[i].fd];
-					close(ufds[i].fd);
-					r->conns[ufds[i].fd] = NULL;
-					free(c);
-					ufds[i].fd = -1;
-					closed = 1;
-				} else if (ufds[i].revents & POLLIN) {
+				if (ufds[i].revents & POLLIN) {
 					/*read */
 					int sock = ufds[i].fd;
 					connection *c;
@@ -179,7 +172,22 @@ receiver_dispatch(void *d)
 					} else if (ret > 0) {
 						receiver_process(r, c);
 					}
+				} else if (ufds[i].revents & POLLHUP || ufds[i].revents & POLLNVAL || ufds[i].revents & POLLERR) {
+					/* closing connection */
+					int error = 0;
+					socklen_t errlen = sizeof(error);
+					getsockopt(ufds[i].fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
+					if (ufds[i].revents & POLLNVAL) {
+						fprintf(stderr, "connection closed: %d with poll event %x (error %s)\n", ufds[i].fd, ufds[i].revents, strerror(error));
+					}
+					connection *c = r->conns[ufds[i].fd];
+					close(ufds[i].fd);
+					r->conns[ufds[i].fd] = NULL;
+					free(c);
+					ufds[i].fd = -1;
+					closed = 1;
 				}
+				ufds[i].revents = 0;
 			}
 
 			/* compact pollfd[] */
@@ -194,9 +202,6 @@ receiver_dispatch(void *d)
 						ufds[pos].events = POLLIN;
 						pos++;
 					}
-				}
-				if (pos > 2) {
-					printf("what's wrong ?\n");
 				}
 				nfds = pos;
 			}
@@ -237,6 +242,7 @@ receiver_dispatch(void *d)
 					ufds[nfds].fd = client;
 					ufds[nfds].events = POLLIN;
 					nfds++;
+					fprintf(stderr, "connection add: %d\n", ufds[i].fd);
 				}
 			}
 		}

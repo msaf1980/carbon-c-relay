@@ -61,7 +61,7 @@ struct _rcptr_trsp {
 %param {void *yyscanner} {router *rtr} {allocator *ralloc} {allocator *palloc}
 
 %token crCLUSTER
-%token crFORWARD crANY_OF crFAILOVER crCARBON_CH crFNV1A_CH crJUMP_FNV1A_CH
+%token crFORWARD crANY_OF crFAILOVER crCARBON_CH crFNV1A_CH crJUMP_FNV1A_CH crLB
 	crFILE crIP crREPLICATION crDYNAMIC crPROTO crUSEALL crUDP crTCP
 %type <enum clusttype> cluster_useall cluster_ch
 %type <struct _clust> cluster_type cluster_file
@@ -257,6 +257,7 @@ cluster_type:
 cluster_useall: crFORWARD  { $$ = FORWARD; }
 			  | crANY_OF   { $$ = ANYOF; }
 			  | crFAILOVER { $$ = FAILOVER; }
+			  | crLB { $$ = LB; }
 			  ;
 
 cluster_opt_useall:          { $$ = 0; }

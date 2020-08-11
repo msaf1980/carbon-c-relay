@@ -106,7 +106,8 @@ build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = relay$(EXEEXT)
 check_PROGRAMS = sendmetric$(EXEEXT)
-noinst_PROGRAMS = test_router$(EXEEXT) test_server$(EXEEXT)
+noinst_PROGRAMS = test_router$(EXEEXT) test_server$(EXEEXT) \
+	bench_server$(EXEEXT)
 @SSL_ENABLED_TRUE@am__append_1 = dual-ssl large-ssl dual-large-ssl
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -167,13 +168,17 @@ am__objects_1 = md5.$(OBJEXT) consistent-hash.$(OBJEXT) \
 	conffile.yy.$(OBJEXT) allocator.$(OBJEXT) router.$(OBJEXT) \
 	queue.$(OBJEXT) server.$(OBJEXT) collector.$(OBJEXT) \
 	aggregator.$(OBJEXT)
-am_relay_OBJECTS = relay.$(OBJEXT) $(am__objects_1)
-relay_OBJECTS = $(am_relay_OBJECTS)
+am_bench_server_OBJECTS = server_bench.$(OBJEXT) \
+	receiver_mock.$(OBJEXT) $(am__objects_1)
+bench_server_OBJECTS = $(am_bench_server_OBJECTS)
 am__DEPENDENCIES_1 =
 am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1)
+bench_server_DEPENDENCIES = $(am__DEPENDENCIES_2)
+am_relay_OBJECTS = relay.$(OBJEXT) $(am__objects_1)
+relay_OBJECTS = $(am_relay_OBJECTS)
 relay_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_sendmetric_OBJECTS = sendmetric.$(OBJEXT)
 sendmetric_OBJECTS = $(am_sendmetric_OBJECTS)
@@ -210,7 +215,7 @@ am__depfiles_remade = ./$(DEPDIR)/aggregator.Po \
 	./$(DEPDIR)/receptor.Po ./$(DEPDIR)/relay.Po \
 	./$(DEPDIR)/router.Po ./$(DEPDIR)/router_test.Po \
 	./$(DEPDIR)/sendmetric.Po ./$(DEPDIR)/server.Po \
-	./$(DEPDIR)/server_test.Po
+	./$(DEPDIR)/server_bench.Po ./$(DEPDIR)/server_test.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -230,8 +235,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-DIST_SOURCES = $(libfaketime_la_SOURCES) $(relay_SOURCES) \
-	$(sendmetric_SOURCES) $(test_router_SOURCES) \
+DIST_SOURCES = $(libfaketime_la_SOURCES) $(bench_server_SOURCES) \
+	$(relay_SOURCES) $(sendmetric_SOURCES) $(test_router_SOURCES) \
 	$(test_server_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
@@ -473,6 +478,8 @@ test_router_SOURCES = router_test.c $(SOURCES)
 test_router_LDADD = $(RELAY_LIBS)
 test_server_SOURCES = server_test.c receiver_mock.c $(SOURCES)
 test_server_LDADD = $(RELAY_LIBS)
+bench_server_SOURCES = server_bench.c receiver_mock.c  $(SOURCES)
+bench_server_LDADD = $(RELAY_LIBS)
 CRTESTS = issue10 issue27 issue117 issue156 issue157 issue163 issue165 \
 	issue180 issue184 issue202 issue213 issue218 issue228 issue235 \
 	issue236 issue246 issue252 issue253 issue263 issue267 issue288 \
@@ -639,6 +646,10 @@ clean-libLTLIBRARIES:
 libfaketime.la: $(libfaketime_la_OBJECTS) $(libfaketime_la_DEPENDENCIES) $(EXTRA_libfaketime_la_DEPENDENCIES) 
 	$(AM_V_CCLD)$(LINK) -rpath $(libdir) $(libfaketime_la_OBJECTS) $(libfaketime_la_LIBADD) $(LIBS)
 
+bench_server$(EXEEXT): $(bench_server_OBJECTS) $(bench_server_DEPENDENCIES) $(EXTRA_bench_server_DEPENDENCIES) 
+	@rm -f bench_server$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(bench_server_OBJECTS) $(bench_server_LDADD) $(LIBS)
+
 relay$(EXEEXT): $(relay_OBJECTS) $(relay_DEPENDENCIES) $(EXTRA_relay_DEPENDENCIES) 
 	@rm -f relay$(EXEEXT)
 	$(AM_V_GEN)$(relay_LINK) $(relay_OBJECTS) $(relay_LDADD) $(LIBS)
@@ -678,6 +689,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/router_test.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sendmetric.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/server.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/server_bench.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/server_test.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
@@ -1051,6 +1063,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/router_test.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
+	-rm -f ./$(DEPDIR)/server_bench.Po
 	-rm -f ./$(DEPDIR)/server_test.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
@@ -1117,6 +1130,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/router_test.Po
 	-rm -f ./$(DEPDIR)/sendmetric.Po
 	-rm -f ./$(DEPDIR)/server.Po
+	-rm -f ./$(DEPDIR)/server_bench.Po
 	-rm -f ./$(DEPDIR)/server_test.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic

@@ -313,8 +313,6 @@ void run_server_queuereader(router *rtr, router_param *param)
 	char *metric;
 	char *firstspace;
 	cluster *cl;
-	time_t start, stop;
-	unsigned long long elapsed;
 	size_t sended = 0;
 	size_t queued = 0;
 	size_t dropped = 0;
@@ -364,12 +362,6 @@ void run_server_queuereader(router *rtr, router_param *param)
 	mu_assert_int_eq_step(send_metrics, sended + queued, param->name);
 	mu_assert_step(queued == 0, "server_send queued", param->name);
 	mu_assert_step(dropped == 0, "server_send drop", param->name);
-
-	start = time(NULL);
-	router_shutdown(rtr);
-	stop = time(NULL);
-	elapsed = stop - start;
-	mu_assert_step(elapsed < shutdown_timeout + 20, "router_shutdown timeout", param->name);
 	mu_assert_step(blackholed == 0, "router_route blackholed", param->name);
 
 }
@@ -378,6 +370,8 @@ MU_TEST_STEP(test_server_queuereader, router_param*)
 {
 	router *rtr;
 	char config[280];
+	time_t start, stop;
+	unsigned long long elapsed;
 
 	queuefree_threshold_start = 1;
 	queuefree_threshold_end = 3;
@@ -395,6 +389,12 @@ MU_TEST_STEP(test_server_queuereader, router_param*)
 	}
 
 	run_server_queuereader(rtr, param);
+
+	start = time(NULL);
+	router_shutdown(rtr);
+	stop = time(NULL);
+	elapsed = stop - start;
+	mu_assert_step(elapsed < shutdown_timeout + 20, "router_shutdown timeout", param->name);
 
 	router_param_cleanup(rtr, param, 0);
 }
