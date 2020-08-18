@@ -941,6 +941,7 @@ static ssize_t server_queuesend(server *self, queue *squeue, server *source)
 	metric = self->batch;
 
 	if (len != 0) {
+		size_t unsended;
 		for (; *metric != NULL; metric++) {
 			size_t mlen = *(size_t *)(*metric);
 			const char *m = *metric + sizeof(size_t);
@@ -959,8 +960,6 @@ static ssize_t server_queuesend(server *self, queue *squeue, server *source)
 				self->fd = -1;
 				break;
 			}
-			__sync_add_and_fetch(&(self->metrics), 1);
-
 		}
 		/* Flush stream */
 		if (self->fd > 0 && (slen = self->strm->strmflush(self->strm)) < 0) {
@@ -988,7 +987,9 @@ static ssize_t server_queuesend(server *self, queue *squeue, server *source)
 		/* reset metric location for requeue metrics from possible unsended buffer
 		 * can duplicate already sended message
 		 */
-		metric -= server_metrics_in_buffer(self);
+		unsended = server_metrics_in_buffer(self);
+		metric -= unsended;
+		__sync_add_and_fetch(&(self->metrics), len - unsended);
 		self->strm->obuflen = 0;
 		/* free sended metrics */
 		for (p = self->batch; p != metric && *p != NULL; p++) {
