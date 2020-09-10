@@ -40,6 +40,7 @@ server *server_new(
 		con_proto ctype,
 		struct addrinfo *saddr,
 		struct addrinfo *hint,
+		size_t connections,
 		size_t queuesize,
 		size_t batchsize,
 		int maxstalls,

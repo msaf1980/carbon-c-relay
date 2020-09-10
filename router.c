@@ -655,7 +655,7 @@ router_add_server(
 		}
 		if (newserver == NULL) {
 			newserver = server_new(ip, port,
-					type, transport, proto, walk, hint,
+					type, transport, proto, walk, hint, 1,
 					ret->conf.queuesize, ret->conf.batchsize,
 					ret->conf.maxstalls, ret->conf.iotimeout,
 					ret->conf.sockbufsize);

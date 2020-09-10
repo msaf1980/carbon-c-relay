@@ -1001,7 +1001,7 @@ main(int argc, char * const argv[])
 	 * that is, the collector (statistics) */
 	if ((internal_submission = server_new(
 					"internal", listenport, T_LINEMODE, W_PLAIN, CON_PIPE,
-					NULL, NULL, 3000,
+					NULL, NULL, 3000, 1,
 					batchsize, maxstalls, iotimeout, sockbufsize)) == NULL)
 	{
 		logerr("failed to create internal submission queue, shutting down\n");
