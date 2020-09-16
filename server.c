@@ -63,6 +63,7 @@
 int queuefree_threshold_start = 0;
 int queuefree_threshold_end = 0;
 int shutdown_timeout = 120; /* 120s */
+int send_timeout = 10; /* 10s */
 
 typedef struct _z_strm {
 	ssize_t (*strmwrite)(struct _z_strm *, const void *, size_t);
@@ -70,7 +71,7 @@ typedef struct _z_strm {
 	int (*strmclose)(struct _z_strm *);
 	const char *(*strmerror)(struct _z_strm *, int);     /* get last err str */
 	struct _z_strm *nextstrm;                            /* set when chained */
-	char obuf[METRIC_BUFSIZ];
+	char *obuf;
 	int obuflen;
 #ifdef HAVE_SSL
 	SSL_CTX *ctx;
@@ -95,7 +96,9 @@ typedef struct _z_strm {
 typedef struct _connection {
 	int fd;
 	z_strm *strm;
+	time_t last;
 	char failure;
+	char *obuf;
 	const char **batch;
 } connection;
 
@@ -473,7 +476,6 @@ sslwrite(z_strm *strm, const void *buf, size_t sze)
 static inline int
 sslflush(z_strm *strm)
 {
-	/* noop */
 	ssize_t slen;
 	size_t len;
 	char *p;
@@ -753,15 +755,6 @@ char server_connect(server *self, connection *c)
 				return -1;
 			}
 
-			/* make socket blocking again */
-			if (fcntl(c->fd, F_SETFL, args) < 0) {
-				logerr("failed to remove socket non-blocking "
-						"mode: %s\n", strerror(errno));
-				close(c->fd);
-				c->fd = -1;
-				return -1;
-			}
-
 			/* disable Nagle's algorithm, issue #208 */
 			args = 1;
 			if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
@@ -844,7 +837,6 @@ char server_connect(server *self, connection *c)
 #ifdef HAVE_LZ4
 	if ((self->transport & 0xFFFF) == W_LZ4) {
 		/* get the maximum size that should ever be required and allocate for it */
-
 		c->strm->hdl.z.cbuflen = LZ4F_compressFrameBound(sizeof(c->strm->obuf), NULL);
 		if ((c->strm->hdl.z.cbuf = malloc(c->strm->hdl.z.cbuflen)) == NULL) {
 			__sync_add_and_fetch(&(c->failure), 1);
@@ -905,6 +897,8 @@ char server_connect(server *self, connection *c)
 		}
 		pstrm->hdl.sock = c->fd;
 	}
+	c->strm->obuf = c->obuf;
+
 	return c->fd;
 }
 
@@ -1084,6 +1078,7 @@ static ssize_t server_queueread(server *self, connection *c, size_t qsize, char 
 		if (server_connect(self, c) == -1) {
 			return -1;
 		}
+		return 0;
 	}
 
 	/* send up to batch size */
@@ -1202,6 +1197,38 @@ static ssize_t server_queueread(server *self, connection *c, size_t qsize, char 
 		return len;
 }
 
+static int server_poll(server *self, struct pollfd *ufds, time_t tout_sec)
+{
+	size_t i, n = 0;
+	int ret;
+	struct timeval start;
+	gettimeofday(&start, NULL);
+	for (i = 0; i < self->connections; i++) {
+		if (self->conns[i].fd < 0) {
+			if (self->conns[i].last < start.tv_sec) {
+				/* try to connect */
+				server_connect(self, &self->conns[i]);
+			} else {
+				self->conns[i].last = start.tv_sec;
+			}
+		}
+		if (self->conns[i].fd > 0) {
+			ufds[n].fd = self->conns[i].fd;
+			ufds[n].events = POLLOUT;
+			n++;
+		} else {
+		}
+	}
+	ret = poll(ufds, n, 10);
+	if (ret == 0) {
+		return 0;
+	} else if (ret > 0) {
+		return n;
+	}
+	logerr("poll error: %s", strerror(errno));
+	return -1;
+}
+
 /**
  * Reads from the queue and sends items to the remote server.  This
  * function is designed to be a thread.  Data sending is attempted to be
@@ -1214,6 +1241,7 @@ static void *
 server_queuereader(void *d)
 {
 	server *self = (server *)d;
+	struct pollfd ufds[MAX_CONNECTIONS];
 	char idle = 0;
 	size_t qsize = queue_size(self->queue);
 	struct timeval start, stop;
@@ -1228,6 +1256,12 @@ server_queuereader(void *d)
 	self->alive = 1;
 
 	while (!shutdown) {
+		if (server_poll(self, ufds, send_timeout) < 1) {
+			usleep((300 + (rand() % 100)) * 1000);  /* 300ms - 400ms */
+			shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
+			gettimeofday(&start, NULL);
+			continue;
+		}
 		gettimeofday(&start, NULL);
 		shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
 		ret = server_queueread(self, &self->conns[0], qsize, &idle, shutdown);
@@ -1245,6 +1279,11 @@ server_queuereader(void *d)
 	}
 
 	while (1) {
+		if (server_poll(self, ufds, send_timeout) < 1) {
+			usleep((300 + (rand() % 100)) * 1000);  /* 300ms - 400ms */
+			shutdown = __sync_bool_compare_and_swap(&(self->keep_running), 0, 0);
+			continue;
+		}
 		gettimeofday(&start, NULL);
 		ret = server_queueread(self, &self->conns[0], qsize, &idle, shutdown);
 		gettimeofday(&stop, NULL);
@@ -1294,19 +1333,41 @@ server_queuereader(void *d)
 	return NULL;
 }
 
+static void
+connection_free(connection *c)
+{
+	if (c->strm != NULL) {
+		if (c->strm->nextstrm != NULL) {
+			free(c->strm->nextstrm);
+		}
+		free(c->strm->obuf);
+		free(c->strm);
+	}
+	free(c->batch);
+}
+
 static int
 connection_alloc(server *s, connection *c, con_trnsp transport)
 {
 	c->fd = -1;
 	c->failure = 0;
+	c->last = 0;
+#if defined(HAVE_LZ4) || defined(HAVE_SNAPPY) || defined(HAVE_GZIP)
+	int compressed = transport & 0xFFFF;
+#endif
+
+	if ((c->obuf = malloc(sizeof(char) * METRIC_BUFSIZ)) == NULL) {
+		return -1;
+	}
+
 	if ((c->batch = malloc(sizeof(char *) * (s->bsize + 1))) == NULL) {
-		logerr("failed to alloc connection for %s:%d: out of memory\n", s->ip, s->port);
 		return -1;
 	}
 	if ((c->strm = malloc(sizeof(z_strm))) == NULL) {
-		logerr("failed to alloc connection for %s:%d: out of memory\n", s->ip, s->port);
+		free(c->batch);
 		return -1;
 	}
+	c->strm->obuf = NULL;
 	c->strm->obuflen = 0;
 	c->strm->nextstrm = NULL;
 
@@ -1326,7 +1387,7 @@ connection_alloc(server *s, connection *c, con_trnsp transport)
 				char *err = ERR_error_string(ERR_get_error(), NULL);
 				logerr("failed to load SSL verify locations from %s for "
 						"%s:%d: %s\n", sslCA, s->ip, s->port, err);
-				free(c->strm);
+				connection_free(c);
 				c->strm = NULL;
 				return -1;
 			}
@@ -1351,10 +1412,10 @@ connection_alloc(server *s, connection *c, con_trnsp transport)
 		/* catch noop */
 	}
 #ifdef HAVE_GZIP
-	else if ((transport & 0xFFFF) == W_GZIP) {
+	else if (compressed == W_GZIP) {
 		z_strm *gzstrm = malloc(sizeof(z_strm));
 		if (gzstrm == NULL) {
-			free(c->strm);
+			connection_free(c);
 			c->strm = NULL;
 			return -1;
 		}
@@ -1368,10 +1429,10 @@ connection_alloc(server *s, connection *c, con_trnsp transport)
 	}
 #endif
 #ifdef HAVE_LZ4
-	else if ((transport & 0xFFFF) == W_LZ4) {
+	else if (compressed == W_LZ4) {
 		z_strm *lzstrm = malloc(sizeof(z_strm));
 		if (lzstrm == NULL) {
-			free(c->strm);
+			connection_free(c);
 			c->strm = NULL;
 			return -1;
 		}
@@ -1385,10 +1446,10 @@ connection_alloc(server *s, connection *c, con_trnsp transport)
 	}
 #endif
 #ifdef HAVE_SNAPPY
-	else if ((transport & 0xFFFF) == W_SNAPPY) {
+	else if (compressed == W_SNAPPY) {
 		z_strm *snpstrm = malloc(sizeof(z_strm));
 		if (snpstrm == NULL) {
-			free(c->strm);
+			connection_free(c);
 			c->strm = NULL;
 			return -1;
 		}
@@ -1402,17 +1463,7 @@ connection_alloc(server *s, connection *c, con_trnsp transport)
 	}
 #endif
 
-
 	return 0;
-}
-
-static void
-connection_free(connection *c)
-{
-	free(c->batch);
-	if (c->strm->nextstrm != NULL)
-		free(c->strm->nextstrm);
-	free(c->strm);
 }
 
 static void
@@ -1497,9 +1548,10 @@ server_new(
 	ret->connections = i;
 
 	ret->saddr = saddr;
-	ret->reresolve = 0;
-	ret->hint = NULL;
-	if (hint != NULL) {
+	if (hint == NULL) {
+		ret->reresolve = 0;
+		ret->hint = NULL;
+	} else {
 		ret->reresolve = 1;
 		ret->hint = hint;
 	}
