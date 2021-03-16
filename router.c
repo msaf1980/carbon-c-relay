@@ -446,7 +446,7 @@ void hint_proto(struct addrinfo *hint, con_proto proto) {
 char *
 router_validate_address(
 		router *rtr,
-		char **retip, unsigned short *retport, void **retsaddr,
+		char **retip, unsigned short *retport, unsigned short *weight, void **retsaddr,
 		void **rethint, char *ip, con_proto proto)
 {
 	unsigned short port = GRAPHITE_PORT;
@@ -638,6 +638,7 @@ router_add_server(
 		con_type type,
 		con_trnsp transport,
 		con_proto proto,
+		unsigned short weight,
 		struct addrinfo *saddrs,
 		struct addrinfo *hint,
 		char useall,
@@ -674,6 +675,7 @@ router_add_server(
 		for (s = ret->srvrs; s != NULL; s = s->next) {
 			if (server_cmp(s->server, walk, ip, port, proto) == 0) {
 				newserver = s->server;
+				server_set_weigtht(s->server, weight); 
 				s->refcnt++;
 				break;
 			}

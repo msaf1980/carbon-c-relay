@@ -65,6 +65,7 @@ struct _clhost {
 	int proto;
 	con_type type;
 	con_trnsp trnsp;
+	unsigned short weight;
 	void *saddr;
 	void *hint;
 	struct _clhost *next;
@@ -104,7 +105,7 @@ struct _rcptr_trsp {
 	char *pemcert;
 };
 
-#line 108 "conffile.tab.h"
+#line 109 "conffile.tab.h"
 
 /* Token type.  */
 #ifndef ROUTER_YYTOKENTYPE
@@ -323,7 +324,7 @@ union ROUTER_YYSTYPE
   struct _rcptr_trsp * transport_mode_trans;
   /* transport_mode  */
   struct _rcptr_trsp * transport_mode;
-#line 327 "conffile.tab.h"
+#line 328 "conffile.tab.h"
 
 };
 typedef union ROUTER_YYSTYPE ROUTER_YYSTYPE;

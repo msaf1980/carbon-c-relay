@@ -20,6 +20,7 @@ struct _clhost {
 	int proto;
 	con_type type;
 	con_trnsp trnsp;
+	unsigned short weight;
 	void *saddr;
 	void *hint;
 	struct _clhost *next;
@@ -217,7 +218,7 @@ cluster: crCLUSTER crSTRING[name] cluster_type[type] threads connections ttl thr
 		
 		for (w = $servers; w != NULL; w = w->next) {
 			err = router_add_server(rtr, w->ip, w->port, w->inst,
-					w->type, w->trnsp, w->proto,
+					w->type, w->trnsp, w->proto, w->weight,
 					w->saddr, w->hint, (char)$type.ival, $$);
 			if (err != NULL) {
 				router_yyerror(&yylloc, yyscanner, rtr, ralloc, palloc, err);
@@ -262,7 +263,7 @@ cluster: crCLUSTER crSTRING[name] cluster_type[type] threads connections ttl thr
 		
 		for (w = $paths; w != NULL; w = w->next) {
 			err = router_add_server(rtr, w->ip, w->port, w->inst,
-					T_LINEMODE, W_PLAIN, w->proto,
+					T_LINEMODE, W_PLAIN, w->proto, w->weight,
 					w->saddr, w->hint, (char)$type.ival, $$);
 			if (err != NULL) {
 				router_yyerror(&yylloc, yyscanner, rtr, ralloc, palloc, err);

@@ -112,7 +112,7 @@ CTEST2(router_test, router_validate_address_hostname) {
     char ip[256];
 
     strcpy(ip, "host");
-    ASSERT_NULL(router_validate_address(data->r, &retip, &retport,
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
                                         &data->retsaddr, &data->rethint, ip,
                                         CON_TCP));
     ASSERT_EQUAL(retport, 2003);
@@ -123,7 +123,7 @@ CTEST2(router_test, router_validate_address_hostname) {
     data->retsaddr = NULL;
 
     strcpy(ip, "[host:1]");
-    ASSERT_NULL(router_validate_address(data->r, &retip, &retport,
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
                                         &data->retsaddr, &data->rethint, ip,
                                         CON_TCP));
     ASSERT_EQUAL(retport, 2003);
@@ -140,7 +140,7 @@ CTEST2(router_test, router_validate_address_port) {
     char ip[256];
 
     strcpy(ip, ":2005");
-    ASSERT_NULL(router_validate_address(data->r, &retip, &retport,
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
                                         &data->retsaddr, &data->rethint, ip,
                                         CON_TCP));
     ASSERT_EQUAL(retport, 2005);
@@ -151,7 +151,7 @@ CTEST2(router_test, router_validate_address_port) {
     data->retsaddr = NULL;
 
     strcpy(ip, ":2005a");
-    ASSERT_STR(router_validate_address(data->r, &retip, &retport,
+    ASSERT_STR(router_validate_address(data->r, &retip, &retport, &weight,
                                        &data->retsaddr, &data->rethint, ip,
                                        CON_TCP),
                "invalid port number '2005a'");
@@ -167,7 +167,7 @@ CTEST2(router_test, router_validate_address_hostname_port) {
     char ip[256];
 
     strcpy(ip, "host:2004");
-    ASSERT_NULL(router_validate_address(data->r, &retip, &retport,
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
                                         &data->retsaddr, &data->rethint, ip,
                                         CON_TCP));
     ASSERT_EQUAL(retport, 2004);
@@ -178,7 +178,7 @@ CTEST2(router_test, router_validate_address_hostname_port) {
     data->retsaddr = NULL;
 
     strcpy(ip, "host:2005a");
-    ASSERT_STR(router_validate_address(data->r, &retip, &retport,
+    ASSERT_STR(router_validate_address(data->r, &retip, &retport, &weight,
                                        &data->retsaddr, &data->rethint, ip,
                                        CON_TCP),
                "invalid port number '2005a'");
@@ -188,7 +188,7 @@ CTEST2(router_test, router_validate_address_hostname_port) {
     data->retsaddr = NULL;
 
     strcpy(ip, "[host:1]:2002");
-    ASSERT_NULL(router_validate_address(data->r, &retip, &retport,
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
                                         &data->retsaddr, &data->rethint, ip,
                                         CON_TCP));
     ASSERT_EQUAL(retport, 2002);
@@ -199,10 +199,60 @@ CTEST2(router_test, router_validate_address_hostname_port) {
     data->retsaddr = NULL;
 
     strcpy(ip, "[host:1]:2006c");
-    ASSERT_STR(router_validate_address(data->r, &retip, &retport,
+    ASSERT_STR(router_validate_address(data->r, &retip, &retport, &weight,
                                        &data->retsaddr, &data->rethint, ip,
                                        CON_TCP),
                "invalid port number '2006c'");
+    freeaddrinfo(data->rethint);
+    data->rethint = NULL;
+    freeaddrinfo(data->retsaddr);
+    data->retsaddr = NULL;
+}
+
+CTEST2(router_test, router_validate_address_hostname_port_weight) {
+    char *retip;
+    unsigned short retport, weight;
+    char ip[256];
+
+    strcpy(ip, "host:2004:0");
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
+                                        &data->retsaddr, &data->rethint, ip,
+                                        CON_TCP));
+    ASSERT_EQUAL(retport, 2004);
+    ASSERT_STR(retip, "host");
+    ASSERT_EQUAL(weight, 0);
+    free(data->rethint);
+    data->rethint = NULL;
+    freeaddrinfo(data->retsaddr);
+    data->retsaddr = NULL;
+
+    strcpy(ip, "host:2004:b");
+    ASSERT_NULL(router_validate_address(data->r, &retip, &retport, &weight,
+                                        &data->retsaddr, &data->rethint, ip,
+                                        CON_TCP));
+    ASSERT_EQUAL(retport, 2004);
+    ASSERT_STR(retip, "host");
+    ASSERT_EQUAL(weight, 0);
+    free(data->rethint);
+    data->rethint = NULL;
+    freeaddrinfo(data->retsaddr);
+    data->retsaddr = NULL;
+
+    strcpy(ip, "host:2005:-1");
+    ASSERT_STR(router_validate_address(data->r, &retip, &retport, &weight,
+                                       &data->retsaddr, &data->rethint, ip,
+                                       CON_TCP),
+               "invalid weight '-1'");
+    freeaddrinfo(data->rethint);
+    data->rethint = NULL;
+    freeaddrinfo(data->retsaddr);
+    data->retsaddr = NULL;
+
+    strcpy(ip, "host:2005:a");
+    ASSERT_STR(router_validate_address(data->r, &retip, &retport, &weight,
+                                       &data->retsaddr, &data->rethint, ip,
+                                       CON_TCP),
+               "invalid weight 'a'");
     freeaddrinfo(data->rethint);
     data->rethint = NULL;
     freeaddrinfo(data->retsaddr);

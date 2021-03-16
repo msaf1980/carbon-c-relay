@@ -83,6 +83,7 @@ struct _server {
 	 */
 	char shared_queue:2;
 	queue *queue;
+	volatile unsigned short weigtht;
 	size_t bsize;
 	size_t qfree_threshold;
 	size_t threshold_start; /* qeueue threshold start */
@@ -1870,6 +1871,7 @@ server_new(
 	ret->secpos = NULL;
 	ret->secondaries = NULL;
 	ret->secondariescnt = 0;
+	ret->weigtht = 100;
 	if (nconns > 1 && (ctype == CON_TCP || ctype == CON_UDP)) {
 		if (nconns > SERVER_MAX_CONNECTIONS)
 			ret->nconns = SERVER_MAX_CONNECTIONS;
@@ -2142,6 +2144,12 @@ void
 server_set_failover(server *self)
 {
 	self->failover = 1;
+}
+
+void
+server_set_weigtht(server *self, unsigned short weigtht)
+{
+	self->weigtht = weigtht;
 }
 
 /**
