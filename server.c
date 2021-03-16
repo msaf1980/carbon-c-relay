@@ -916,6 +916,17 @@ server_back_unsended(server *self, queue *q, unsigned short n)
 	}
 }
 
+static void
+server_batch_free(server *self, unsigned short n) {
+	if (self->conns[n].len > 0) {
+		ssize_t i;
+		for (i = 0; i < self->conns[n].len; i++) {
+			free((char *) self->conns[n].batch[i]);
+		}
+		self->conns[n].len = 0;
+	}
+}
+
 int
 server_disconnect(server *self, unsigned short n) {
 	if (self->conns[n].fd != -1) {
@@ -1449,7 +1460,7 @@ static ssize_t server_queueread(server *self, queue *q, char keep_running, unsig
 			}
 			__sync_add_and_fetch(&(self->conns[n].metrics), self->conns[n].len);
 			len = self->conns[n].len;
-			self->conns[n].len = 0;
+			server_batch_free(self, n);
 		}
 	}
 
