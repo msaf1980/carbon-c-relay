@@ -376,10 +376,15 @@ run_reloadtest() {
 	local payloadexpect="${payload}out"
 	local test=${confarg%.*}
 	local confarg2=${test}-2.${confarg##*.}
+	local confarg3=${test}-3.${confarg##*.}
 
 	echo -n "${test}: "
 	[[ -e ${confarg2} ]] || {
 		echo "${confarg2} not exist" >&2
+		return 1
+	}
+	[[ -e ${confarg3} ]] || {
+		echo "${confarg3} not exist" >&2
 		return 1
 	}
 
@@ -474,7 +479,7 @@ run_reloadtest() {
 	#fi
 
 	reload_ret=0
-	for conf_arg in ${confarg2} ${confarg} ${confarg2} ; do
+	for conf_arg in ${confarg2} ${confarg3} ${confarg} ${confarg3} ${confarg2} ; do
 		echo -n "${conf_arg} "
 		write_config ${conf_arg} ${conf} ${port} ${unixsock} || return 1
 		> "${output}"

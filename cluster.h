@@ -38,6 +38,7 @@ enum clusttype {
 	JUMP_CH,    /* jump consistent hash with fnv1a input */
 	ANYOF,      /* FNV1a-based hash, but with backup by others */
 	FAILOVER,   /* ordered attempt delivery list */
+	LB,         /* delivery list */
 	AGGREGATION,
 	REWRITE
 };

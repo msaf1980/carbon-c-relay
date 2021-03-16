@@ -2,28 +2,28 @@ listen type linemode transport plain 127.0.0.1:@port@ proto tcp;
 listen type linemode transport plain 127.0.0.1:@port@ proto udp;
 
 cluster one forward
-	127.0.0.1:2003
 	127.0.0.1:2004
+	127.0.0.1:2005
 	;
 
 cluster two any_of
-	127.0.0.1:2013
 	127.0.0.1:2014
+	127.0.0.1:2015
 	;
 
 cluster three failover
-	127.0.0.1:2023
 	127.0.0.1:2024
+	127.0.0.1:2025
 	;
 
 cluster four carbon_ch
-	127.0.0.1:2033
 	127.0.0.1:2034
+	127.0.0.1:2035
 	;
 
 cluster five lb
-	127.0.0.1:2043
 	127.0.0.1:2044
+	127.0.0.1:2045
 	;
 
 match * send to default;

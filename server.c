@@ -97,7 +97,7 @@ struct _server {
 	struct _server **secondaries;
 	size_t *secpos;
 	size_t secondariescnt;
-	char failover:1;
+	char failover;
 	char alive; 		/* incremented counter (each connection) for sending in progress */
 	char running;       /* full byte for atomic access */
 	char keep_running;  /* full byte for atomic access */
@@ -2061,6 +2061,7 @@ servers *cluster_servers(cluster *c)
 			;;
 		case FAILOVER:		
 		case ANYOF:
+		case LB:
 			return c->members.anyof->list;
 			;;
 		case CARBON_CH:

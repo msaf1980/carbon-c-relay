@@ -1,6 +1,9 @@
 # 3.7 (unreleased master branch)
 
 ### New Features
+* **server** new load-balance cluster (lb)
+* **server** poll-based model (per cluster with optional addition threads)) instead of server threads
+* **dispatcher** libevent-based connections dispatch (with distribution over multiply threads)
 
 ### Bugfixes
 

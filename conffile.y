@@ -68,7 +68,7 @@ struct _rcptr_trsp {
 %param {void *yyscanner} {router *rtr} {allocator *ralloc} {allocator *palloc}
 
 %token crCLUSTER
-%token crFORWARD crANY_OF crFAILOVER crCARBON_CH crFNV1A_CH crJUMP_FNV1A_CH
+%token crFORWARD crANY_OF crFAILOVER crLB crCARBON_CH crFNV1A_CH crJUMP_FNV1A_CH
 	crFILE crIP crREPLICATION crDYNAMIC crPROTO crUSEALL crUDP crTCP
 	crTTL crTHREADS crCONNECTIONS
 	crTHRESHOLD_START crTHRESHOLD_END
@@ -205,6 +205,7 @@ cluster: crCLUSTER crSTRING[name] cluster_type[type] threads connections ttl thr
 				break;
 			case ANYOF:
 			case FAILOVER:
+			case LB:
 				$$->members.anyof = NULL;
 				break;
 			default:
@@ -287,6 +288,7 @@ cluster_type:
 cluster_useall: crFORWARD  { $$ = FORWARD; }
 			  | crANY_OF   { $$ = ANYOF; }
 			  | crFAILOVER { $$ = FAILOVER; }
+			  | crLB { $$ = LB; }			  
 			  ;
 
 cluster_opt_useall:          { $$ = 0; }

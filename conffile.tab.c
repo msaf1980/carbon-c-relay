@@ -198,81 +198,82 @@ struct _rcptr_trsp {
     crFORWARD = 259,
     crANY_OF = 260,
     crFAILOVER = 261,
-    crCARBON_CH = 262,
-    crFNV1A_CH = 263,
-    crJUMP_FNV1A_CH = 264,
-    crFILE = 265,
-    crIP = 266,
-    crREPLICATION = 267,
-    crDYNAMIC = 268,
-    crPROTO = 269,
-    crUSEALL = 270,
-    crUDP = 271,
-    crTCP = 272,
-    crTTL = 273,
-    crTHREADS = 274,
-    crCONNECTIONS = 275,
-    crTHRESHOLD_START = 276,
-    crTHRESHOLD_END = 277,
-    crMATCH = 278,
-    crVALIDATE = 279,
-    crELSE = 280,
-    crLOG = 281,
-    crDROP = 282,
-    crROUTE = 283,
-    crUSING = 284,
-    crSEND = 285,
-    crTO = 286,
-    crBLACKHOLE = 287,
-    crSTOP = 288,
-    crREWRITE = 289,
-    crINTO = 290,
-    crAGGREGATE = 291,
-    crEVERY = 292,
-    crSECONDS = 293,
-    crEXPIRE = 294,
-    crAFTER = 295,
-    crTIMESTAMP = 296,
-    crAT = 297,
-    crSTART = 298,
-    crMIDDLE = 299,
-    crEND = 300,
-    crOF = 301,
-    crBUCKET = 302,
-    crCOMPUTE = 303,
-    crSUM = 304,
-    crCOUNT = 305,
-    crMAX = 306,
-    crMIN = 307,
-    crAVERAGE = 308,
-    crMEDIAN = 309,
-    crVARIANCE = 310,
-    crSTDDEV = 311,
-    crPERCENTILE = 312,
-    crWRITE = 313,
-    crSTATISTICS = 314,
-    crSUBMIT = 315,
-    crRESET = 316,
-    crCOUNTERS = 317,
-    crINTERVAL = 318,
-    crPREFIX = 319,
-    crWITH = 320,
-    crLISTEN = 321,
-    crTYPE = 322,
-    crLINEMODE = 323,
-    crSYSLOGMODE = 324,
-    crTRANSPORT = 325,
-    crPLAIN = 326,
-    crGZIP = 327,
-    crLZ4 = 328,
-    crSNAPPY = 329,
-    crSSL = 330,
-    crUNIX = 331,
-    crINCLUDE = 332,
-    crCOMMENT = 333,
-    crSTRING = 334,
-    crUNEXPECTED = 335,
-    crINTVAL = 336
+    crLB = 262,
+    crCARBON_CH = 263,
+    crFNV1A_CH = 264,
+    crJUMP_FNV1A_CH = 265,
+    crFILE = 266,
+    crIP = 267,
+    crREPLICATION = 268,
+    crDYNAMIC = 269,
+    crPROTO = 270,
+    crUSEALL = 271,
+    crUDP = 272,
+    crTCP = 273,
+    crTTL = 274,
+    crTHREADS = 275,
+    crCONNECTIONS = 276,
+    crTHRESHOLD_START = 277,
+    crTHRESHOLD_END = 278,
+    crMATCH = 279,
+    crVALIDATE = 280,
+    crELSE = 281,
+    crLOG = 282,
+    crDROP = 283,
+    crROUTE = 284,
+    crUSING = 285,
+    crSEND = 286,
+    crTO = 287,
+    crBLACKHOLE = 288,
+    crSTOP = 289,
+    crREWRITE = 290,
+    crINTO = 291,
+    crAGGREGATE = 292,
+    crEVERY = 293,
+    crSECONDS = 294,
+    crEXPIRE = 295,
+    crAFTER = 296,
+    crTIMESTAMP = 297,
+    crAT = 298,
+    crSTART = 299,
+    crMIDDLE = 300,
+    crEND = 301,
+    crOF = 302,
+    crBUCKET = 303,
+    crCOMPUTE = 304,
+    crSUM = 305,
+    crCOUNT = 306,
+    crMAX = 307,
+    crMIN = 308,
+    crAVERAGE = 309,
+    crMEDIAN = 310,
+    crVARIANCE = 311,
+    crSTDDEV = 312,
+    crPERCENTILE = 313,
+    crWRITE = 314,
+    crSTATISTICS = 315,
+    crSUBMIT = 316,
+    crRESET = 317,
+    crCOUNTERS = 318,
+    crINTERVAL = 319,
+    crPREFIX = 320,
+    crWITH = 321,
+    crLISTEN = 322,
+    crTYPE = 323,
+    crLINEMODE = 324,
+    crSYSLOGMODE = 325,
+    crTRANSPORT = 326,
+    crPLAIN = 327,
+    crGZIP = 328,
+    crLZ4 = 329,
+    crSNAPPY = 330,
+    crSSL = 331,
+    crUNIX = 332,
+    crINCLUDE = 333,
+    crCOMMENT = 334,
+    crSTRING = 335,
+    crUNEXPECTED = 336,
+    crINTVAL = 337
   };
 #endif
 
@@ -405,7 +406,7 @@ union ROUTER_YYSTYPE
   struct _rcptr_trsp * transport_mode_trans;
   /* transport_mode  */
   struct _rcptr_trsp * transport_mode;
-#line 409 "conffile.tab.c"
+#line 410 "conffile.tab.c"
 
 };
 typedef union ROUTER_YYSTYPE ROUTER_YYSTYPE;
@@ -740,19 +741,19 @@ union yyalloc
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  35
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   153
+#define YYLAST   152
 
 /* YYNTOKENS -- Number of terminals.  */
-#define YYNTOKENS  85
+#define YYNTOKENS  86
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  69
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  138
+#define YYNRULES  139
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  211
+#define YYNSTATES  212
 
 #define YYUNDEFTOK  2
-#define YYMAXUTOK   336
+#define YYMAXUTOK   337
 
 
 /* YYTRANSLATE(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
@@ -768,9 +769,9 @@ static const yytype_int8 yytranslate[] =
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
-       2,     2,    84,     2,     2,     2,     2,     2,     2,     2,
-       2,     2,     2,     2,     2,     2,     2,     2,     2,    82,
-       2,    83,     2,     2,     2,     2,     2,     2,     2,     2,
+       2,     2,    85,     2,     2,     2,     2,     2,     2,     2,
+       2,     2,     2,     2,     2,     2,     2,     2,     2,    83,
+       2,    84,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
@@ -797,7 +798,7 @@ static const yytype_int8 yytranslate[] =
       45,    46,    47,    48,    49,    50,    51,    52,    53,    54,
       55,    56,    57,    58,    59,    60,    61,    62,    63,    64,
       65,    66,    67,    68,    69,    70,    71,    72,    73,    74,
-      75,    76,    77,    78,    79,    80,    81
+      75,    76,    77,    78,    79,    80,    81,    82
 };
 
 #if ROUTER_YYDEBUG
@@ -805,19 +806,19 @@ static const yytype_int8 yytranslate[] =
 static const yytype_int16 yyrline[] =
 {
        0,   135,   135,   138,   139,   142,   145,   146,   147,   148,
-     149,   150,   151,   152,   156,   233,   281,   283,   287,   288,
-     289,   292,   293,   296,   297,   298,   301,   302,   305,   306,
-     309,   310,   313,   314,   317,   318,   321,   322,   325,   326,
-     329,   330,   333,   335,   336,   338,   358,   360,   361,   363,
-     385,   386,   387,   397,   398,   399,   402,   403,   404,   407,
-     408,   418,   419,   429,   439,   450,   451,   466,   518,   530,
-     533,   535,   536,   539,   558,   559,   578,   579,   582,   583,
-     586,   587,   590,   593,   603,   606,   608,   609,   612,   628,
-     629,   634,   676,   764,   765,   770,   771,   772,   775,   779,
-     780,   782,   797,   798,   799,   800,   801,   802,   803,   813,
-     814,   817,   818,   823,   838,   863,   864,   875,   876,   879,
-     880,   885,   903,   928,   931,   951,   961,   978,   995,  1015,
-    1024,  1035,  1038,  1039,  1042,  1079,  1101,  1102,  1107
+     149,   150,   151,   152,   156,   234,   282,   284,   288,   289,
+     290,   291,   294,   295,   298,   299,   300,   303,   304,   307,
+     308,   311,   312,   315,   316,   319,   320,   323,   324,   327,
+     328,   331,   332,   335,   337,   338,   340,   360,   362,   363,
+     365,   387,   388,   389,   399,   400,   401,   404,   405,   406,
+     409,   410,   420,   421,   431,   441,   452,   453,   468,   520,
+     532,   535,   537,   538,   541,   560,   561,   580,   581,   584,
+     585,   588,   589,   592,   595,   605,   608,   610,   611,   614,
+     630,   631,   636,   678,   766,   767,   772,   773,   774,   777,
+     781,   782,   784,   799,   800,   801,   802,   803,   804,   805,
+     815,   816,   819,   820,   825,   840,   865,   866,   877,   878,
+     881,   882,   887,   905,   930,   933,   953,   963,   980,   997,
+    1017,  1026,  1037,  1040,  1041,  1044,  1081,  1103,  1104,  1109
 };
 #endif
 
@@ -827,22 +828,22 @@ static const yytype_int16 yyrline[] =
 static const char *const yytname[] =
 {
   "$end", "error", "$undefined", "crCLUSTER", "crFORWARD", "crANY_OF",
-  "crFAILOVER", "crCARBON_CH", "crFNV1A_CH", "crJUMP_FNV1A_CH", "crFILE",
-  "crIP", "crREPLICATION", "crDYNAMIC", "crPROTO", "crUSEALL", "crUDP",
-  "crTCP", "crTTL", "crTHREADS", "crCONNECTIONS", "crTHRESHOLD_START",
-  "crTHRESHOLD_END", "crMATCH", "crVALIDATE", "crELSE", "crLOG", "crDROP",
-  "crROUTE", "crUSING", "crSEND", "crTO", "crBLACKHOLE", "crSTOP",
-  "crREWRITE", "crINTO", "crAGGREGATE", "crEVERY", "crSECONDS", "crEXPIRE",
-  "crAFTER", "crTIMESTAMP", "crAT", "crSTART", "crMIDDLE", "crEND", "crOF",
-  "crBUCKET", "crCOMPUTE", "crSUM", "crCOUNT", "crMAX", "crMIN",
-  "crAVERAGE", "crMEDIAN", "crVARIANCE", "crSTDDEV", "crPERCENTILE",
-  "crWRITE", "crSTATISTICS", "crSUBMIT", "crRESET", "crCOUNTERS",
-  "crINTERVAL", "crPREFIX", "crWITH", "crLISTEN", "crTYPE", "crLINEMODE",
-  "crSYSLOGMODE", "crTRANSPORT", "crPLAIN", "crGZIP", "crLZ4", "crSNAPPY",
-  "crSSL", "crUNIX", "crINCLUDE", "crCOMMENT", "crSTRING", "crUNEXPECTED",
-  "crINTVAL", "';'", "'='", "'*'", "$accept", "stmts", "opt_stmt", "stmt",
-  "command", "cluster", "cluster_type", "cluster_useall",
-  "cluster_opt_useall", "cluster_ch", "cluster_opt_repl",
+  "crFAILOVER", "crLB", "crCARBON_CH", "crFNV1A_CH", "crJUMP_FNV1A_CH",
+  "crFILE", "crIP", "crREPLICATION", "crDYNAMIC", "crPROTO", "crUSEALL",
+  "crUDP", "crTCP", "crTTL", "crTHREADS", "crCONNECTIONS",
+  "crTHRESHOLD_START", "crTHRESHOLD_END", "crMATCH", "crVALIDATE",
+  "crELSE", "crLOG", "crDROP", "crROUTE", "crUSING", "crSEND", "crTO",
+  "crBLACKHOLE", "crSTOP", "crREWRITE", "crINTO", "crAGGREGATE", "crEVERY",
+  "crSECONDS", "crEXPIRE", "crAFTER", "crTIMESTAMP", "crAT", "crSTART",
+  "crMIDDLE", "crEND", "crOF", "crBUCKET", "crCOMPUTE", "crSUM", "crCOUNT",
+  "crMAX", "crMIN", "crAVERAGE", "crMEDIAN", "crVARIANCE", "crSTDDEV",
+  "crPERCENTILE", "crWRITE", "crSTATISTICS", "crSUBMIT", "crRESET",
+  "crCOUNTERS", "crINTERVAL", "crPREFIX", "crWITH", "crLISTEN", "crTYPE",
+  "crLINEMODE", "crSYSLOGMODE", "crTRANSPORT", "crPLAIN", "crGZIP",
+  "crLZ4", "crSNAPPY", "crSSL", "crUNIX", "crINCLUDE", "crCOMMENT",
+  "crSTRING", "crUNEXPECTED", "crINTVAL", "';'", "'='", "'*'", "$accept",
+  "stmts", "opt_stmt", "stmt", "command", "cluster", "cluster_type",
+  "cluster_useall", "cluster_opt_useall", "cluster_ch", "cluster_opt_repl",
   "cluster_opt_dynamic", "connections", "threshold_start", "threshold_end",
   "ttl", "threads", "cluster_file", "cluster_paths", "cluster_opt_path",
   "cluster_path", "cluster_hosts", "cluster_opt_host", "cluster_host",
@@ -875,11 +876,11 @@ static const yytype_int16 yytoknum[] =
      305,   306,   307,   308,   309,   310,   311,   312,   313,   314,
      315,   316,   317,   318,   319,   320,   321,   322,   323,   324,
      325,   326,   327,   328,   329,   330,   331,   332,   333,   334,
-     335,   336,    59,    61,    42
+     335,   336,   337,    59,    61,    42
 };
 # endif
 
-#define YYPACT_NINF (-96)
+#define YYPACT_NINF (-97)
 
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
@@ -893,28 +894,28 @@ static const yytype_int16 yytoknum[] =
      STATE-NUM.  */
 static const yytype_int8 yypact[] =
 {
-      -2,   -69,   -57,   -26,   -49,   -25,   -10,   -12,   -23,    58,
-     -96,    -2,   -22,   -96,   -96,   -96,   -96,   -96,   -96,   -96,
-     -96,    31,   -96,   -96,    35,   -96,   -25,    30,    28,    29,
-      33,     4,    -1,   -96,   -96,   -96,   -96,   -96,   -96,   -96,
-     -96,   -96,   -96,   -96,    57,    50,    56,    60,    50,    -6,
-      46,   -96,   -96,   -28,    -3,    -4,     1,    16,    15,    10,
-     -96,     2,    61,   -96,   -96,     3,    72,    61,    62,    59,
-      63,   -96,   -96,    53,   -96,    11,   -96,    51,    54,    55,
-      26,    63,   -65,    19,    18,   -96,    17,    81,   -96,   -96,
-     -96,    81,    20,    21,    70,    53,   -96,   -96,   -96,   -96,
-     -96,    64,   -96,    39,    25,   -96,    53,   -96,   -96,   -96,
-     -96,    27,   -96,    91,   -96,    18,   -96,    34,    86,    86,
-     -96,   -96,   -96,   -96,   -28,   -96,    68,   -96,   -96,   -96,
-     -96,   -14,   -96,   -96,   -96,    36,    87,    87,   -96,    37,
-     -96,   -96,   -96,   -96,   -96,    38,    41,    42,    73,   -96,
-      40,   -96,    41,   -96,   -96,    42,    69,   -50,    98,   -96,
-     -96,   -96,   -96,    71,    66,   -96,   -96,    32,    49,   -20,
-     -37,    63,    66,   -96,   -96,   -16,    52,   -96,   -96,   -96,
-      78,   -96,   -96,   -96,   -96,   -96,   -96,   -96,   -96,   -96,
-      67,    53,   -96,   -96,   -96,   -96,   -29,   -96,    65,    79,
-      96,   -96,   -96,   -96,   -96,   -96,   -96,   -96,   -96,    74,
-     -96
+      -2,   -70,   -57,   -39,   -56,   -46,   -11,    -9,   -26,    55,
+     -97,    -2,   -23,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,    32,   -97,   -97,    36,   -97,   -46,    31,    28,    29,
+      30,     4,     1,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,   -97,   -97,   -97,   -97,    57,    51,    56,    60,    51,
+      -6,    46,   -97,   -97,   -29,    -3,    -4,    -1,    16,    15,
+      11,   -97,     2,    62,   -97,   -97,     3,    72,    62,    61,
+      58,    59,   -97,   -97,    63,   -97,     9,   -97,    52,    53,
+      54,    27,    59,   -66,    18,    19,   -97,    20,    79,   -97,
+     -97,   -97,    79,    21,    23,    68,    63,   -97,   -97,   -97,
+     -97,   -97,    64,   -97,    37,    25,   -97,    63,   -97,   -97,
+     -97,   -97,    26,   -97,    92,   -97,    19,   -97,    33,    86,
+      86,   -97,   -97,   -97,   -97,   -29,   -97,    69,   -97,   -97,
+     -97,   -97,   -15,   -97,   -97,   -97,    34,    88,    88,   -97,
+      38,   -97,   -97,   -97,   -97,   -97,    39,    42,    43,    70,
+     -97,    40,   -97,    42,   -97,   -97,    43,    71,   -55,    97,
+     -97,   -97,   -97,   -97,    74,    65,   -97,   -97,    35,    50,
+     -14,   -38,    59,    65,   -97,   -97,   -13,    48,   -97,   -97,
+     -97,    78,   -97,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,    67,    63,   -97,   -97,   -97,   -97,   -28,   -97,    66,
+      80,    95,   -97,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+      49,   -97
 };
 
   /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -922,52 +923,52 @@ static const yytype_int8 yypact[] =
      means the default is an error.  */
 static const yytype_uint8 yydefact[] =
 {
-       3,     0,     0,     0,     0,     0,   115,     0,     0,     0,
+       3,     0,     0,     0,     0,     0,   116,     0,     0,     0,
        2,     3,     0,     6,     7,     8,     9,    10,    11,    12,
-      13,     0,    73,    68,    74,    69,    71,     0,     0,     0,
-       0,   117,     0,   121,   138,     1,     4,     5,    18,    19,
-      20,    23,    24,    25,    41,    38,    21,    26,    38,     0,
-      78,    72,    70,     0,     0,     0,     0,     0,   119,   129,
-      40,     0,    30,    22,    16,     0,    28,    30,     0,     0,
-      80,    83,    88,    89,    84,    86,    91,     0,     0,     0,
-       0,   111,     0,   123,     0,    39,     0,    36,    27,    29,
-      17,    36,     0,     0,     0,    89,    81,    90,   113,    87,
-      85,     0,   116,     0,     0,   112,    89,   125,   126,   127,
-     128,     0,   130,     0,   122,   132,    31,     0,    32,    32,
-      76,    77,    75,    79,     0,    67,     0,   118,   120,   114,
-     124,     0,   133,   131,    37,     0,    34,    34,    82,     0,
-     137,   136,   135,   134,    33,     0,     0,     0,     0,    35,
-      50,    14,    47,    45,    15,    43,    93,     0,    53,    48,
-      46,    42,    44,     0,     0,    51,    52,     0,    56,     0,
-       0,   111,    99,    54,    55,     0,    59,    95,    96,    97,
-       0,   102,   103,   104,   105,   106,   107,   109,   110,   108,
-       0,    89,   100,    98,    57,    58,     0,    49,    65,     0,
-       0,    92,    61,    62,    63,    64,    66,    60,    94,     0,
-     101
+      13,     0,    74,    69,    75,    70,    72,     0,     0,     0,
+       0,   118,     0,   122,   139,     1,     4,     5,    18,    19,
+      20,    21,    24,    25,    26,    42,    39,    22,    27,    39,
+       0,    79,    73,    71,     0,     0,     0,     0,     0,   120,
+     130,    41,     0,    31,    23,    16,     0,    29,    31,     0,
+       0,    81,    84,    89,    90,    85,    87,    92,     0,     0,
+       0,     0,   112,     0,   124,     0,    40,     0,    37,    28,
+      30,    17,    37,     0,     0,     0,    90,    82,    91,   114,
+      88,    86,     0,   117,     0,     0,   113,    90,   126,   127,
+     128,   129,     0,   131,     0,   123,   133,    32,     0,    33,
+      33,    77,    78,    76,    80,     0,    68,     0,   119,   121,
+     115,   125,     0,   134,   132,    38,     0,    35,    35,    83,
+       0,   138,   137,   136,   135,    34,     0,     0,     0,     0,
+      36,    51,    14,    48,    46,    15,    44,    94,     0,    54,
+      49,    47,    43,    45,     0,     0,    52,    53,     0,    57,
+       0,     0,   112,   100,    55,    56,     0,    60,    96,    97,
+      98,     0,   103,   104,   105,   106,   107,   108,   110,   111,
+     109,     0,    90,   101,    99,    58,    59,     0,    50,    66,
+       0,     0,    93,    62,    63,    64,    65,    67,    61,    95,
+       0,   102
 };
 
   /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -96,   -96,   117,   -96,   -96,   -96,   -96,   -96,   -96,   -96,
-     -96,   -96,    75,    12,    -8,    43,    82,   -96,   -96,   -96,
-     -19,   -17,   -96,   -96,   -96,   -96,   -96,   -96,   -96,   -96,
-     -96,   -96,     0,   -96,   -96,   -96,   -96,   -96,   -96,    76,
-       8,    77,   -96,   -96,   -95,   -96,   -96,   -96,   -96,   -39,
-     -96,   -96,   -96,   -34,   -96,   -96,   -96,   -96,   -96,   -96,
-     -96,   -96,   -96,   -96,    23,   -96,   -96,   -96,   -96
+     -97,   -97,   119,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,   -97,    73,    12,    -7,    41,    85,   -97,   -97,   -97,
+     -21,   -17,   -97,   -97,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,   -97,     0,   -97,   -97,   -97,   -97,   -97,   -97,    75,
+      13,    76,   -97,   -97,   -96,   -97,   -97,   -97,   -97,   -36,
+     -97,   -97,   -97,   -33,   -97,   -97,   -97,   -97,   -97,   -97,
+     -97,   -97,   -97,   -97,    24,   -97,   -97,   -97,   -97
 };
 
   /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int16 yydefgoto[] =
 {
-      -1,     9,    10,    11,    12,    13,    45,    46,    64,    47,
-      66,    90,    87,   136,   146,   118,    62,    48,   154,   161,
-     155,   151,   160,   152,   158,   168,   176,   197,   198,   207,
-      14,    24,    25,    52,    26,    50,   122,    70,    95,   105,
-      73,    74,   100,    75,    98,    15,    16,   164,   180,   171,
-     193,   172,   190,   106,    17,    18,    31,    58,    81,    19,
-      33,   112,    83,    84,   114,   133,   115,   143,    20
+      -1,     9,    10,    11,    12,    13,    46,    47,    65,    48,
+      67,    91,    88,   137,   147,   119,    63,    49,   155,   162,
+     156,   152,   161,   153,   159,   169,   177,   198,   199,   208,
+      14,    24,    25,    53,    26,    51,   123,    71,    96,   106,
+      74,    75,   101,    76,    99,    15,    16,   165,   181,   172,
+     194,   173,   191,   107,    17,    18,    31,    59,    82,    19,
+      33,   113,    84,    85,   115,   134,   116,   144,    20
 };
 
   /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
@@ -975,89 +976,89 @@ static const yytype_int16 yydefgoto[] =
      number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_uint8 yytable[] =
 {
-     125,     1,   140,   141,    71,    29,   107,   108,   109,   110,
-      21,   129,   181,   182,   183,   184,   185,   186,   187,   188,
-     189,     2,    22,   177,   178,   179,    51,    23,     3,   165,
-      28,   166,     4,    27,     5,    38,    39,    40,    41,    42,
-      43,    44,   202,   203,   204,   205,   120,   121,   173,   174,
-      30,    72,   194,   195,    22,    32,    34,     6,    35,    49,
-      37,    53,   142,    54,     7,    57,    55,    59,    60,    61,
-      56,    63,    65,    68,    69,     8,    76,    77,    79,    80,
-      82,    86,    78,    85,    88,    89,    97,    92,    93,   101,
-      72,   104,   102,    94,   111,   103,   201,   113,   116,   117,
-     123,   124,   127,   126,   128,   131,   130,   135,   139,   145,
-     163,   156,   167,   169,   170,   134,   175,   144,   148,   149,
-     150,   153,   196,   157,   199,   200,   208,   209,    36,   147,
-      67,   137,   138,   192,   119,   159,   162,   191,   132,     0,
-     206,     0,    91,     0,     0,     0,    96,     0,     0,     0,
-       0,     0,    99,   210
+     126,     1,   141,   142,    72,    29,   108,   109,   110,   111,
+      21,   130,   182,   183,   184,   185,   186,   187,   188,   189,
+     190,    27,     2,    22,    28,   166,    52,   167,    23,     3,
+     178,   179,   180,     4,    22,     5,    38,    39,    40,    41,
+      42,    43,    44,    45,   203,   204,   205,   206,   121,   122,
+      30,    73,   174,   175,    34,    35,   195,   196,     6,    32,
+      37,    50,   143,    54,    55,     7,    58,    56,    57,    61,
+      60,    62,    64,    66,    69,    70,     8,    77,    78,    80,
+      81,    79,    83,    87,    86,    89,    90,    93,    94,    73,
+      95,   102,   103,   105,   112,   104,   202,    98,   118,   114,
+     125,   128,   117,   124,   127,   129,   131,   132,   136,   157,
+     140,   146,   168,   164,   171,   135,   145,   170,   176,   197,
+     149,   150,   151,   154,   158,   200,   201,   210,   209,   211,
+      36,   148,   138,   120,    68,   163,   160,   193,   139,   192,
+     133,    92,   207,     0,     0,     0,    97,     0,     0,     0,
+       0,     0,   100
 };
 
 static const yytype_int16 yycheck[] =
 {
-      95,     3,    16,    17,    32,     5,    71,    72,    73,    74,
-      79,   106,    49,    50,    51,    52,    53,    54,    55,    56,
-      57,    23,    79,    43,    44,    45,    26,    84,    30,    79,
-      79,    81,    34,    59,    36,     4,     5,     6,     7,     8,
-       9,    10,    71,    72,    73,    74,    26,    27,    16,    17,
-      60,    79,    68,    69,    79,    67,    79,    59,     0,    24,
-      82,    31,    76,    35,    66,    61,    37,    68,    11,    19,
-      37,    15,    12,    79,    28,    77,    79,    81,    62,    64,
-      70,    20,    81,    81,    81,    13,    33,    25,    29,    38,
-      79,    65,    38,    30,    75,    40,   191,    79,    81,    18,
-      79,    31,    63,    39,    79,    14,    79,    21,    40,    22,
-      41,    38,    14,    42,    48,    81,    67,    81,    81,    81,
-      79,    79,    70,    83,    46,    58,    47,    31,    11,   137,
-      48,   119,   124,   172,    91,   152,   155,   171,   115,    -1,
-      75,    -1,    67,    -1,    -1,    -1,    70,    -1,    -1,    -1,
-      -1,    -1,    75,    79
+      96,     3,    17,    18,    33,     5,    72,    73,    74,    75,
+      80,   107,    50,    51,    52,    53,    54,    55,    56,    57,
+      58,    60,    24,    80,    80,    80,    26,    82,    85,    31,
+      44,    45,    46,    35,    80,    37,     4,     5,     6,     7,
+       8,     9,    10,    11,    72,    73,    74,    75,    27,    28,
+      61,    80,    17,    18,    80,     0,    69,    70,    60,    68,
+      83,    25,    77,    32,    36,    67,    62,    38,    38,    12,
+      69,    20,    16,    13,    80,    29,    78,    80,    82,    63,
+      65,    82,    71,    21,    82,    82,    14,    26,    30,    80,
+      31,    39,    39,    66,    76,    41,   192,    34,    19,    80,
+      32,    64,    82,    80,    40,    80,    80,    15,    22,    39,
+      41,    23,    15,    42,    49,    82,    82,    43,    68,    71,
+      82,    82,    80,    80,    84,    47,    59,    32,    48,    80,
+      11,   138,   120,    92,    49,   156,   153,   173,   125,   172,
+     116,    68,    76,    -1,    -1,    -1,    71,    -1,    -1,    -1,
+      -1,    -1,    76
 };
 
   /* YYSTOS[STATE-NUM] -- The (internal number of the) accessing
      symbol of state STATE-NUM.  */
 static const yytype_uint8 yystos[] =
 {
-       0,     3,    23,    30,    34,    36,    59,    66,    77,    86,
-      87,    88,    89,    90,   115,   130,   131,   139,   140,   144,
-     153,    79,    79,    84,   116,   117,   119,    59,    79,   117,
-      60,   141,    67,   145,    79,     0,    87,    82,     4,     5,
-       6,     7,     8,     9,    10,    91,    92,    94,   102,    24,
-     120,   117,   118,    31,    35,    37,    37,    61,   142,    68,
-      11,    19,   101,    15,    93,    12,    95,   101,    79,    28,
-     122,    32,    79,   125,   126,   128,    79,    81,    81,    62,
-      64,   143,    70,   147,   148,    81,    20,    97,    81,    13,
-      96,    97,    25,    29,    30,   123,   124,    33,   129,   126,
-     127,    38,    38,    40,    65,   124,   138,    71,    72,    73,
-      74,    75,   146,    79,   149,   151,    81,    18,   100,   100,
-      26,    27,   121,    79,    31,   129,    39,    63,    79,   129,
-      79,    14,   149,   150,    81,    21,    98,    98,   125,    40,
-      16,    17,    76,   152,    81,    22,    99,    99,    81,    81,
-      79,   106,   108,    79,   103,   105,    38,    83,   109,   106,
-     107,   104,   105,    41,   132,    79,    81,    14,   110,    42,
-      48,   134,   136,    16,    17,    67,   111,    43,    44,    45,
-     133,    49,    50,    51,    52,    53,    54,    55,    56,    57,
-     137,   138,   134,   135,    68,    69,    70,   112,   113,    46,
-      58,   129,    71,    72,    73,    74,    75,   114,    47,    31,
-      79
+       0,     3,    24,    31,    35,    37,    60,    67,    78,    87,
+      88,    89,    90,    91,   116,   131,   132,   140,   141,   145,
+     154,    80,    80,    85,   117,   118,   120,    60,    80,   118,
+      61,   142,    68,   146,    80,     0,    88,    83,     4,     5,
+       6,     7,     8,     9,    10,    11,    92,    93,    95,   103,
+      25,   121,   118,   119,    32,    36,    38,    38,    62,   143,
+      69,    12,    20,   102,    16,    94,    13,    96,   102,    80,
+      29,   123,    33,    80,   126,   127,   129,    80,    82,    82,
+      63,    65,   144,    71,   148,   149,    82,    21,    98,    82,
+      14,    97,    98,    26,    30,    31,   124,   125,    34,   130,
+     127,   128,    39,    39,    41,    66,   125,   139,    72,    73,
+      74,    75,    76,   147,    80,   150,   152,    82,    19,   101,
+     101,    27,    28,   122,    80,    32,   130,    40,    64,    80,
+     130,    80,    15,   150,   151,    82,    22,    99,    99,   126,
+      41,    17,    18,    77,   153,    82,    23,   100,   100,    82,
+      82,    80,   107,   109,    80,   104,   106,    39,    84,   110,
+     107,   108,   105,   106,    42,   133,    80,    82,    15,   111,
+      43,    49,   135,   137,    17,    18,    68,   112,    44,    45,
+      46,   134,    50,    51,    52,    53,    54,    55,    56,    57,
+      58,   138,   139,   135,   136,    69,    70,    71,   113,   114,
+      47,    59,   130,    72,    73,    74,    75,    76,   115,    48,
+      32,    80
 };
 
   /* YYR1[YYN] -- Symbol number of symbol that rule YYN derives.  */
 static const yytype_uint8 yyr1[] =
 {
-       0,    85,    86,    87,    87,    88,    89,    89,    89,    89,
-      89,    89,    89,    89,    90,    90,    91,    91,    92,    92,
-      92,    93,    93,    94,    94,    94,    95,    95,    96,    96,
-      97,    97,    98,    98,    99,    99,   100,   100,   101,   101,
-     102,   102,   103,   104,   104,   105,   106,   107,   107,   108,
-     109,   109,   109,   110,   110,   110,   111,   111,   111,   112,
-     112,   113,   113,   113,   113,   114,   114,   115,   116,   116,
-     117,   118,   118,   119,   120,   120,   121,   121,   122,   122,
-     123,   123,   124,   125,   125,   126,   127,   127,   128,   129,
-     129,   130,   131,   132,   132,   133,   133,   133,   134,   135,
-     135,   136,   137,   137,   137,   137,   137,   137,   137,   137,
-     137,   138,   138,   139,   140,   141,   141,   142,   142,   143,
-     143,   144,   145,   146,   146,   147,   147,   147,   147,   148,
-     148,   149,   150,   150,   151,   151,   152,   152,   153
+       0,    86,    87,    88,    88,    89,    90,    90,    90,    90,
+      90,    90,    90,    90,    91,    91,    92,    92,    93,    93,
+      93,    93,    94,    94,    95,    95,    95,    96,    96,    97,
+      97,    98,    98,    99,    99,   100,   100,   101,   101,   102,
+     102,   103,   103,   104,   105,   105,   106,   107,   108,   108,
+     109,   110,   110,   110,   111,   111,   111,   112,   112,   112,
+     113,   113,   114,   114,   114,   114,   115,   115,   116,   117,
+     117,   118,   119,   119,   120,   121,   121,   122,   122,   123,
+     123,   124,   124,   125,   126,   126,   127,   128,   128,   129,
+     130,   130,   131,   132,   133,   133,   134,   134,   134,   135,
+     136,   136,   137,   138,   138,   138,   138,   138,   138,   138,
+     138,   138,   139,   139,   140,   141,   142,   142,   143,   143,
+     144,   144,   145,   146,   147,   147,   148,   148,   148,   148,
+     149,   149,   150,   151,   151,   152,   152,   153,   153,   154
 };
 
   /* YYR2[YYN] -- Number of symbols on the right hand side of rule YYN.  */
@@ -1065,18 +1066,18 @@ static const yytype_int8 yyr2[] =
 {
        0,     2,     1,     0,     2,     2,     1,     1,     1,     1,
        1,     1,     1,     1,     9,     9,     2,     3,     1,     1,
-       1,     0,     1,     1,     1,     1,     0,     2,     0,     1,
-       0,     2,     0,     2,     0,     2,     0,     2,     0,     2,
-       2,     1,     2,     0,     1,     1,     2,     0,     1,     5,
-       0,     2,     2,     0,     2,     2,     0,     2,     2,     0,
-       2,     2,     2,     2,     2,     0,     1,     6,     1,     1,
-       2,     0,     1,     1,     0,     4,     1,     1,     0,     3,
-       0,     1,     3,     1,     1,     2,     0,     1,     1,     0,
-       1,     4,    13,     0,     5,     1,     1,     1,     2,     0,
-       1,     5,     1,     1,     1,     1,     1,     1,     1,     1,
-       1,     0,     1,     5,     6,     0,     4,     0,     4,     0,
-       3,     2,     4,     0,     2,     2,     2,     2,     2,     0,
-       2,     2,     0,     1,     3,     3,     1,     1,     2
+       1,     1,     0,     1,     1,     1,     1,     0,     2,     0,
+       1,     0,     2,     0,     2,     0,     2,     0,     2,     0,
+       2,     2,     1,     2,     0,     1,     1,     2,     0,     1,
+       5,     0,     2,     2,     0,     2,     2,     0,     2,     2,
+       0,     2,     2,     2,     2,     2,     0,     1,     6,     1,
+       1,     2,     0,     1,     1,     0,     4,     1,     1,     0,
+       3,     0,     1,     3,     1,     1,     2,     0,     1,     1,
+       0,     1,     4,    13,     0,     5,     1,     1,     1,     2,
+       0,     1,     5,     1,     1,     1,     1,     1,     1,     1,
+       1,     1,     0,     1,     5,     6,     0,     4,     0,     4,
+       0,     3,     2,     4,     0,     2,     2,     2,     2,     2,
+       0,     2,     2,     0,     1,     3,     3,     1,     1,     2
 };
 
 
@@ -1933,6 +1934,7 @@ yyreduce:
 				break;
 			case ANYOF:
 			case FAILOVER:
+			case LB:
 				(yyval.cluster)->members.anyof = NULL;
 				break;
 			default:
@@ -1958,11 +1960,11 @@ yyreduce:
 			YYERROR;
 		}
 	   }
-#line 1962 "conffile.tab.c"
+#line 1964 "conffile.tab.c"
     break;
 
   case 15:
-#line 234 "conffile.y"
+#line 235 "conffile.y"
            {
 	   	struct _clhost *w;
 		char *err;
@@ -2007,185 +2009,191 @@ yyreduce:
 			YYERROR;
 		}
 	   }
-#line 2011 "conffile.tab.c"
+#line 2013 "conffile.tab.c"
     break;
 
   case 16:
-#line 282 "conffile.y"
+#line 283 "conffile.y"
                           { (yyval.cluster_type).t = (yyvsp[-1].cluster_useall); (yyval.cluster_type).ival = (yyvsp[0].cluster_opt_useall); }
-#line 2017 "conffile.tab.c"
+#line 2019 "conffile.tab.c"
     break;
 
   case 17:
-#line 284 "conffile.y"
+#line 285 "conffile.y"
                           { (yyval.cluster_type).t = (yyvsp[-2].cluster_ch); (yyval.cluster_type).ival = ((yyvsp[0].cluster_opt_dynamic) * 2) + ((yyvsp[-1].cluster_opt_repl) * 10); }
-#line 2023 "conffile.tab.c"
+#line 2025 "conffile.tab.c"
     break;
 
   case 18:
-#line 287 "conffile.y"
+#line 288 "conffile.y"
                            { (yyval.cluster_useall) = FORWARD; }
-#line 2029 "conffile.tab.c"
+#line 2031 "conffile.tab.c"
     break;
 
   case 19:
-#line 288 "conffile.y"
+#line 289 "conffile.y"
                                        { (yyval.cluster_useall) = ANYOF; }
-#line 2035 "conffile.tab.c"
+#line 2037 "conffile.tab.c"
     break;
 
   case 20:
-#line 289 "conffile.y"
+#line 290 "conffile.y"
                                        { (yyval.cluster_useall) = FAILOVER; }
-#line 2041 "conffile.tab.c"
+#line 2043 "conffile.tab.c"
     break;
 
   case 21:
-#line 292 "conffile.y"
-                             { (yyval.cluster_opt_useall) = 0; }
-#line 2047 "conffile.tab.c"
+#line 291 "conffile.y"
+                                 { (yyval.cluster_useall) = LB; }
+#line 2049 "conffile.tab.c"
     break;
 
   case 22:
-#line 293 "conffile.y"
-                                             { (yyval.cluster_opt_useall) = 1; }
-#line 2053 "conffile.tab.c"
+#line 294 "conffile.y"
+                             { (yyval.cluster_opt_useall) = 0; }
+#line 2055 "conffile.tab.c"
     break;
 
   case 23:
-#line 296 "conffile.y"
-                            { (yyval.cluster_ch) = CARBON_CH; }
-#line 2059 "conffile.tab.c"
+#line 295 "conffile.y"
+                                             { (yyval.cluster_opt_useall) = 1; }
+#line 2061 "conffile.tab.c"
     break;
 
   case 24:
-#line 297 "conffile.y"
-                                    { (yyval.cluster_ch) = FNV1A_CH; }
-#line 2065 "conffile.tab.c"
+#line 298 "conffile.y"
+                            { (yyval.cluster_ch) = CARBON_CH; }
+#line 2067 "conffile.tab.c"
     break;
 
   case 25:
-#line 298 "conffile.y"
-                                    { (yyval.cluster_ch) = JUMP_CH; }
-#line 2071 "conffile.tab.c"
+#line 299 "conffile.y"
+                                    { (yyval.cluster_ch) = FNV1A_CH; }
+#line 2073 "conffile.tab.c"
     break;
 
   case 26:
-#line 301 "conffile.y"
-                                              { (yyval.cluster_opt_repl) = 1; }
-#line 2077 "conffile.tab.c"
+#line 300 "conffile.y"
+                                    { (yyval.cluster_ch) = JUMP_CH; }
+#line 2079 "conffile.tab.c"
     break;
 
   case 27:
-#line 302 "conffile.y"
-                                                              { (yyval.cluster_opt_repl) = (yyvsp[0].crINTVAL); }
-#line 2083 "conffile.tab.c"
+#line 303 "conffile.y"
+                                              { (yyval.cluster_opt_repl) = 1; }
+#line 2085 "conffile.tab.c"
     break;
 
   case 28:
-#line 305 "conffile.y"
-                               { (yyval.cluster_opt_dynamic) = 0; }
-#line 2089 "conffile.tab.c"
+#line 304 "conffile.y"
+                                                              { (yyval.cluster_opt_repl) = (yyvsp[0].crINTVAL); }
+#line 2091 "conffile.tab.c"
     break;
 
   case 29:
-#line 306 "conffile.y"
-                                               { (yyval.cluster_opt_dynamic) = 1; }
-#line 2095 "conffile.tab.c"
+#line 307 "conffile.y"
+                               { (yyval.cluster_opt_dynamic) = 0; }
+#line 2097 "conffile.tab.c"
     break;
 
   case 30:
-#line 309 "conffile.y"
-                           { (yyval.connections) = 1; }
-#line 2101 "conffile.tab.c"
+#line 308 "conffile.y"
+                                               { (yyval.cluster_opt_dynamic) = 1; }
+#line 2103 "conffile.tab.c"
     break;
 
   case 31:
-#line 310 "conffile.y"
-                                                               { (yyval.connections) = (yyvsp[0].crINTVAL); }
-#line 2107 "conffile.tab.c"
+#line 311 "conffile.y"
+                           { (yyval.connections) = 1; }
+#line 2109 "conffile.tab.c"
     break;
 
   case 32:
-#line 313 "conffile.y"
-                                  { (yyval.threshold_start) = 0; }
-#line 2113 "conffile.tab.c"
+#line 312 "conffile.y"
+                                                               { (yyval.connections) = (yyvsp[0].crINTVAL); }
+#line 2115 "conffile.tab.c"
     break;
 
   case 33:
-#line 314 "conffile.y"
-                                                                   { (yyval.threshold_start) = (yyvsp[0].crINTVAL); }
-#line 2119 "conffile.tab.c"
+#line 315 "conffile.y"
+                                  { (yyval.threshold_start) = 0; }
+#line 2121 "conffile.tab.c"
     break;
 
   case 34:
-#line 317 "conffile.y"
-                                { (yyval.threshold_end) = 0; }
-#line 2125 "conffile.tab.c"
+#line 316 "conffile.y"
+                                                                   { (yyval.threshold_start) = (yyvsp[0].crINTVAL); }
+#line 2127 "conffile.tab.c"
     break;
 
   case 35:
-#line 318 "conffile.y"
-                                                                 { (yyval.threshold_end) = (yyvsp[0].crINTVAL); }
-#line 2131 "conffile.tab.c"
+#line 319 "conffile.y"
+                                { (yyval.threshold_end) = 0; }
+#line 2133 "conffile.tab.c"
     break;
 
   case 36:
-#line 321 "conffile.y"
-                                { (yyval.ttl) = 0; }
-#line 2137 "conffile.tab.c"
+#line 320 "conffile.y"
+                                                                 { (yyval.threshold_end) = (yyvsp[0].crINTVAL); }
+#line 2139 "conffile.tab.c"
     break;
 
   case 37:
-#line 322 "conffile.y"
-                                                       { (yyval.ttl) = (yyvsp[0].crINTVAL); }
-#line 2143 "conffile.tab.c"
+#line 323 "conffile.y"
+                                { (yyval.ttl) = 0; }
+#line 2145 "conffile.tab.c"
     break;
 
   case 38:
-#line 325 "conffile.y"
-                                { (yyval.threads) = 1; }
-#line 2149 "conffile.tab.c"
+#line 324 "conffile.y"
+                                                       { (yyval.ttl) = (yyvsp[0].crINTVAL); }
+#line 2151 "conffile.tab.c"
     break;
 
   case 39:
-#line 326 "conffile.y"
-                                                           { (yyval.threads) = (yyvsp[0].crINTVAL); }
-#line 2155 "conffile.tab.c"
+#line 327 "conffile.y"
+                                { (yyval.threads) = 1; }
+#line 2157 "conffile.tab.c"
     break;
 
   case 40:
-#line 329 "conffile.y"
-                          { (yyval.cluster_file).t = FILELOGIP; (yyval.cluster_file).ival = 0; }
-#line 2161 "conffile.tab.c"
+#line 328 "conffile.y"
+                                                           { (yyval.threads) = (yyvsp[0].crINTVAL); }
+#line 2163 "conffile.tab.c"
     break;
 
   case 41:
-#line 330 "conffile.y"
-                                      { (yyval.cluster_file).t = FILELOG; (yyval.cluster_file).ival = 0; }
-#line 2167 "conffile.tab.c"
+#line 331 "conffile.y"
+                          { (yyval.cluster_file).t = FILELOGIP; (yyval.cluster_file).ival = 0; }
+#line 2169 "conffile.tab.c"
     break;
 
   case 42:
-#line 333 "conffile.y"
-                                                   { (yyvsp[-1].cluster_path)->next = (yyvsp[0].cluster_opt_path); (yyval.cluster_paths) = (yyvsp[-1].cluster_path); }
-#line 2173 "conffile.tab.c"
+#line 332 "conffile.y"
+                                      { (yyval.cluster_file).t = FILELOG; (yyval.cluster_file).ival = 0; }
+#line 2175 "conffile.tab.c"
     break;
 
   case 43:
 #line 335 "conffile.y"
-                               { (yyval.cluster_opt_path) = NULL; }
-#line 2179 "conffile.tab.c"
+                                                   { (yyvsp[-1].cluster_path)->next = (yyvsp[0].cluster_opt_path); (yyval.cluster_paths) = (yyvsp[-1].cluster_path); }
+#line 2181 "conffile.tab.c"
     break;
 
   case 44:
-#line 336 "conffile.y"
-                                               { (yyval.cluster_opt_path) = (yyvsp[0].cluster_path); }
-#line 2185 "conffile.tab.c"
+#line 337 "conffile.y"
+                               { (yyval.cluster_opt_path) = NULL; }
+#line 2187 "conffile.tab.c"
     break;
 
   case 45:
-#line 339 "conffile.y"
+#line 338 "conffile.y"
+                                               { (yyval.cluster_opt_path) = (yyvsp[0].cluster_path); }
+#line 2193 "conffile.tab.c"
+    break;
+
+  case 46:
+#line 341 "conffile.y"
                         {
 				struct _clhost *ret = ra_malloc(palloc, sizeof(struct _clhost));
 				char *err = router_validate_path(rtr, (yyvsp[0].crSTRING));
@@ -2203,29 +2211,29 @@ yyreduce:
 				ret->next = NULL;
 				(yyval.cluster_path) = ret;
 			}
-#line 2207 "conffile.tab.c"
-    break;
-
-  case 46:
-#line 358 "conffile.y"
-                                                   { (yyvsp[-1].cluster_host)->next = (yyvsp[0].cluster_opt_host); (yyval.cluster_hosts) = (yyvsp[-1].cluster_host); }
-#line 2213 "conffile.tab.c"
+#line 2215 "conffile.tab.c"
     break;
 
   case 47:
 #line 360 "conffile.y"
-                                { (yyval.cluster_opt_host) = NULL; }
-#line 2219 "conffile.tab.c"
+                                                   { (yyvsp[-1].cluster_host)->next = (yyvsp[0].cluster_opt_host); (yyval.cluster_hosts) = (yyvsp[-1].cluster_host); }
+#line 2221 "conffile.tab.c"
     break;
 
   case 48:
-#line 361 "conffile.y"
-                                                { (yyval.cluster_opt_host) = (yyvsp[0].cluster_hosts); }
-#line 2225 "conffile.tab.c"
+#line 362 "conffile.y"
+                                { (yyval.cluster_opt_host) = NULL; }
+#line 2227 "conffile.tab.c"
     break;
 
   case 49:
-#line 366 "conffile.y"
+#line 363 "conffile.y"
+                                                { (yyval.cluster_opt_host) = (yyvsp[0].cluster_hosts); }
+#line 2233 "conffile.tab.c"
+    break;
+
+  case 50:
+#line 368 "conffile.y"
                         {
 			  	struct _clhost *ret = ra_malloc(palloc, sizeof(struct _clhost));
 				char *err = router_validate_address(
@@ -2244,23 +2252,23 @@ yyreduce:
 				ret->next = NULL;
 				(yyval.cluster_host) = ret;
 			  }
-#line 2248 "conffile.tab.c"
-    break;
-
-  case 50:
-#line 385 "conffile.y"
-                                         { (yyval.cluster_opt_instance) = NULL; }
-#line 2254 "conffile.tab.c"
+#line 2256 "conffile.tab.c"
     break;
 
   case 51:
-#line 386 "conffile.y"
-                                                             { (yyval.cluster_opt_instance) = (yyvsp[0].crSTRING); }
-#line 2260 "conffile.tab.c"
+#line 387 "conffile.y"
+                                         { (yyval.cluster_opt_instance) = NULL; }
+#line 2262 "conffile.tab.c"
     break;
 
   case 52:
 #line 388 "conffile.y"
+                                                             { (yyval.cluster_opt_instance) = (yyvsp[0].crSTRING); }
+#line 2268 "conffile.tab.c"
+    break;
+
+  case 53:
+#line 390 "conffile.y"
                                         {
 						(yyval.cluster_opt_instance) = ra_malloc(palloc, sizeof(char) * 12);
 						if ((yyval.cluster_opt_instance) == NULL) {
@@ -2269,53 +2277,53 @@ yyreduce:
 						}
 						snprintf((yyval.cluster_opt_instance), 12, "%d", (yyvsp[0].crINTVAL));
 					}
-#line 2273 "conffile.tab.c"
-    break;
-
-  case 53:
-#line 397 "conffile.y"
-                                 { (yyval.cluster_opt_proto) = CON_TCP; }
-#line 2279 "conffile.tab.c"
+#line 2281 "conffile.tab.c"
     break;
 
   case 54:
-#line 398 "conffile.y"
-                                                 { (yyval.cluster_opt_proto) = CON_UDP; }
-#line 2285 "conffile.tab.c"
+#line 399 "conffile.y"
+                                 { (yyval.cluster_opt_proto) = CON_TCP; }
+#line 2287 "conffile.tab.c"
     break;
 
   case 55:
-#line 399 "conffile.y"
-                                                 { (yyval.cluster_opt_proto) = CON_TCP; }
-#line 2291 "conffile.tab.c"
+#line 400 "conffile.y"
+                                                 { (yyval.cluster_opt_proto) = CON_UDP; }
+#line 2293 "conffile.tab.c"
     break;
 
   case 56:
-#line 402 "conffile.y"
-                                      { (yyval.cluster_opt_type) = T_LINEMODE; }
-#line 2297 "conffile.tab.c"
+#line 401 "conffile.y"
+                                                 { (yyval.cluster_opt_proto) = CON_TCP; }
+#line 2299 "conffile.tab.c"
     break;
 
   case 57:
-#line 403 "conffile.y"
-                                                      { (yyval.cluster_opt_type) = T_LINEMODE; }
-#line 2303 "conffile.tab.c"
+#line 404 "conffile.y"
+                                      { (yyval.cluster_opt_type) = T_LINEMODE; }
+#line 2305 "conffile.tab.c"
     break;
 
   case 58:
-#line 404 "conffile.y"
-                                                      { (yyval.cluster_opt_type) = T_SYSLOGMODE; }
-#line 2309 "conffile.tab.c"
+#line 405 "conffile.y"
+                                                      { (yyval.cluster_opt_type) = T_LINEMODE; }
+#line 2311 "conffile.tab.c"
     break;
 
   case 59:
-#line 407 "conffile.y"
-                                      { (yyval.cluster_opt_transport) = W_PLAIN; }
-#line 2315 "conffile.tab.c"
+#line 406 "conffile.y"
+                                                      { (yyval.cluster_opt_type) = T_SYSLOGMODE; }
+#line 2317 "conffile.tab.c"
     break;
 
   case 60:
-#line 410 "conffile.y"
+#line 409 "conffile.y"
+                                      { (yyval.cluster_opt_transport) = W_PLAIN; }
+#line 2323 "conffile.tab.c"
+    break;
+
+  case 61:
+#line 412 "conffile.y"
                                          {
 					 	if ((yyvsp[0].cluster_transport_opt_ssl) == W_PLAIN) {
 							(yyval.cluster_opt_transport) = (yyvsp[-1].cluster_transport_trans);
@@ -2323,17 +2331,17 @@ yyreduce:
 							(yyval.cluster_opt_transport) = (yyvsp[-1].cluster_transport_trans) | (yyvsp[0].cluster_transport_opt_ssl);
 						}
 					 }
-#line 2327 "conffile.tab.c"
-    break;
-
-  case 61:
-#line 418 "conffile.y"
-                                              { (yyval.cluster_transport_trans) = W_PLAIN; }
-#line 2333 "conffile.tab.c"
+#line 2335 "conffile.tab.c"
     break;
 
   case 62:
-#line 419 "conffile.y"
+#line 420 "conffile.y"
+                                              { (yyval.cluster_transport_trans) = W_PLAIN; }
+#line 2341 "conffile.tab.c"
+    break;
+
+  case 63:
+#line 421 "conffile.y"
                                                                   {
 #ifdef HAVE_GZIP
 							(yyval.cluster_transport_trans) = W_GZIP;
@@ -2344,11 +2352,11 @@ yyreduce:
 							YYERROR;
 #endif
 					    }
-#line 2348 "conffile.tab.c"
+#line 2356 "conffile.tab.c"
     break;
 
-  case 63:
-#line 429 "conffile.y"
+  case 64:
+#line 431 "conffile.y"
                                                                    {
 #ifdef HAVE_LZ4
 							(yyval.cluster_transport_trans) = W_LZ4;
@@ -2359,11 +2367,11 @@ yyreduce:
 							YYERROR;
 #endif
 					    }
-#line 2363 "conffile.tab.c"
+#line 2371 "conffile.tab.c"
     break;
 
-  case 64:
-#line 439 "conffile.y"
+  case 65:
+#line 441 "conffile.y"
                                                                       {
 #ifdef HAVE_SNAPPY
 							(yyval.cluster_transport_trans) = W_SNAPPY;
@@ -2374,17 +2382,17 @@ yyreduce:
 							YYERROR;
 #endif
 					    }
-#line 2378 "conffile.tab.c"
-    break;
-
-  case 65:
-#line 450 "conffile.y"
-                           { (yyval.cluster_transport_opt_ssl) = W_PLAIN; }
-#line 2384 "conffile.tab.c"
+#line 2386 "conffile.tab.c"
     break;
 
   case 66:
 #line 452 "conffile.y"
+                           { (yyval.cluster_transport_opt_ssl) = W_PLAIN; }
+#line 2392 "conffile.tab.c"
+    break;
+
+  case 67:
+#line 454 "conffile.y"
                                                  {
 #ifdef HAVE_SSL
 							(yyval.cluster_transport_opt_ssl) = W_SSL;
@@ -2395,11 +2403,11 @@ yyreduce:
 							YYERROR;
 #endif
 					     }
-#line 2399 "conffile.tab.c"
+#line 2407 "conffile.tab.c"
     break;
 
-  case 67:
-#line 468 "conffile.y"
+  case 68:
+#line 470 "conffile.y"
          {
 	 	/* each expr comes with an allocated route, populate it */
 		struct _maexpr *we;
@@ -2448,11 +2456,11 @@ yyreduce:
 			}
 		}
 	 }
-#line 2452 "conffile.tab.c"
+#line 2460 "conffile.tab.c"
     break;
 
-  case 68:
-#line 519 "conffile.y"
+  case 69:
+#line 521 "conffile.y"
                    {
 			if (((yyval.match_exprs) = ra_malloc(palloc, sizeof(struct _maexpr))) == NULL) {
 				logerr("out of memory\n");
@@ -2464,35 +2472,35 @@ yyreduce:
 			(yyval.match_exprs)->drop = 0;
 			(yyval.match_exprs)->next = NULL;
 		   }
-#line 2468 "conffile.tab.c"
-    break;
-
-  case 69:
-#line 530 "conffile.y"
-                                  { (yyval.match_exprs) = (yyvsp[0].match_exprs2); }
-#line 2474 "conffile.tab.c"
+#line 2476 "conffile.tab.c"
     break;
 
   case 70:
-#line 533 "conffile.y"
-                                              { (yyvsp[-1].match_expr)->next = (yyvsp[0].match_opt_expr); (yyval.match_exprs2) = (yyvsp[-1].match_expr); }
-#line 2480 "conffile.tab.c"
+#line 532 "conffile.y"
+                                  { (yyval.match_exprs) = (yyvsp[0].match_exprs2); }
+#line 2482 "conffile.tab.c"
     break;
 
   case 71:
 #line 535 "conffile.y"
-                             { (yyval.match_opt_expr) = NULL; }
-#line 2486 "conffile.tab.c"
+                                              { (yyvsp[-1].match_expr)->next = (yyvsp[0].match_opt_expr); (yyval.match_exprs2) = (yyvsp[-1].match_expr); }
+#line 2488 "conffile.tab.c"
     break;
 
   case 72:
-#line 536 "conffile.y"
-                                         { (yyval.match_opt_expr) = (yyvsp[0].match_exprs2); }
-#line 2492 "conffile.tab.c"
+#line 537 "conffile.y"
+                             { (yyval.match_opt_expr) = NULL; }
+#line 2494 "conffile.tab.c"
     break;
 
   case 73:
-#line 540 "conffile.y"
+#line 538 "conffile.y"
+                                         { (yyval.match_opt_expr) = (yyvsp[0].match_exprs2); }
+#line 2500 "conffile.tab.c"
+    break;
+
+  case 74:
+#line 542 "conffile.y"
                   {
 			char *err;
 			if (((yyval.match_expr) = ra_malloc(palloc, sizeof(struct _maexpr))) == NULL) {
@@ -2509,17 +2517,17 @@ yyreduce:
 			(yyval.match_expr)->drop = 0;
 			(yyval.match_expr)->next = NULL;
 		  }
-#line 2513 "conffile.tab.c"
-    break;
-
-  case 74:
-#line 558 "conffile.y"
-                    { (yyval.match_opt_validate) = NULL; }
-#line 2519 "conffile.tab.c"
+#line 2521 "conffile.tab.c"
     break;
 
   case 75:
 #line 560 "conffile.y"
+                    { (yyval.match_opt_validate) = NULL; }
+#line 2527 "conffile.tab.c"
+    break;
+
+  case 76:
+#line 562 "conffile.y"
                                   {
 					char *err;
 					if (((yyval.match_opt_validate) = ra_malloc(palloc, sizeof(struct _maexpr))) == NULL) {
@@ -2536,53 +2544,53 @@ yyreduce:
 					(yyval.match_opt_validate)->drop = (yyvsp[0].match_log_or_drop);
 					(yyval.match_opt_validate)->next = NULL;
 				  }
-#line 2540 "conffile.tab.c"
-    break;
-
-  case 76:
-#line 578 "conffile.y"
-                          { (yyval.match_log_or_drop) = 0; }
-#line 2546 "conffile.tab.c"
+#line 2548 "conffile.tab.c"
     break;
 
   case 77:
-#line 579 "conffile.y"
-                                          { (yyval.match_log_or_drop) = 1; }
-#line 2552 "conffile.tab.c"
+#line 580 "conffile.y"
+                          { (yyval.match_log_or_drop) = 0; }
+#line 2554 "conffile.tab.c"
     break;
 
   case 78:
-#line 582 "conffile.y"
-                 { (yyval.match_opt_route) = NULL; }
-#line 2558 "conffile.tab.c"
+#line 581 "conffile.y"
+                                          { (yyval.match_log_or_drop) = 1; }
+#line 2560 "conffile.tab.c"
     break;
 
   case 79:
-#line 583 "conffile.y"
-                                                            { (yyval.match_opt_route) = (yyvsp[0].crSTRING); }
-#line 2564 "conffile.tab.c"
+#line 584 "conffile.y"
+                 { (yyval.match_opt_route) = NULL; }
+#line 2566 "conffile.tab.c"
     break;
 
   case 80:
-#line 586 "conffile.y"
-                   { (yyval.match_opt_send_to) = NULL; }
-#line 2570 "conffile.tab.c"
+#line 585 "conffile.y"
+                                                            { (yyval.match_opt_route) = (yyvsp[0].crSTRING); }
+#line 2572 "conffile.tab.c"
     break;
 
   case 81:
-#line 587 "conffile.y"
-                                                 { (yyval.match_opt_send_to) = (yyvsp[0].match_send_to); }
-#line 2576 "conffile.tab.c"
+#line 588 "conffile.y"
+                   { (yyval.match_opt_send_to) = NULL; }
+#line 2578 "conffile.tab.c"
     break;
 
   case 82:
-#line 590 "conffile.y"
-                                            { (yyval.match_send_to) = (yyvsp[0].match_dsts); }
-#line 2582 "conffile.tab.c"
+#line 589 "conffile.y"
+                                                 { (yyval.match_opt_send_to) = (yyvsp[0].match_send_to); }
+#line 2584 "conffile.tab.c"
     break;
 
   case 83:
-#line 594 "conffile.y"
+#line 592 "conffile.y"
+                                            { (yyval.match_send_to) = (yyvsp[0].match_dsts); }
+#line 2590 "conffile.tab.c"
+    break;
+
+  case 84:
+#line 596 "conffile.y"
                   {
 			if (((yyval.match_dsts) = ra_malloc(ralloc, sizeof(destinations))) == NULL) {
 				logerr("out of memory\n");
@@ -2592,35 +2600,35 @@ yyreduce:
 				YYABORT;
 			(yyval.match_dsts)->next = NULL;
 		  }
-#line 2596 "conffile.tab.c"
-    break;
-
-  case 84:
-#line 603 "conffile.y"
-                                { (yyval.match_dsts) = (yyvsp[0].match_dsts2); }
-#line 2602 "conffile.tab.c"
+#line 2604 "conffile.tab.c"
     break;
 
   case 85:
-#line 606 "conffile.y"
-                                           { (yyvsp[-1].match_dst)->next = (yyvsp[0].match_opt_dst); (yyval.match_dsts2) = (yyvsp[-1].match_dst); }
-#line 2608 "conffile.tab.c"
+#line 605 "conffile.y"
+                                { (yyval.match_dsts) = (yyvsp[0].match_dsts2); }
+#line 2610 "conffile.tab.c"
     break;
 
   case 86:
 #line 608 "conffile.y"
-                           { (yyval.match_opt_dst) = NULL; }
-#line 2614 "conffile.tab.c"
+                                           { (yyvsp[-1].match_dst)->next = (yyvsp[0].match_opt_dst); (yyval.match_dsts2) = (yyvsp[-1].match_dst); }
+#line 2616 "conffile.tab.c"
     break;
 
   case 87:
-#line 609 "conffile.y"
-                                       { (yyval.match_opt_dst) = (yyvsp[0].match_dsts2); }
-#line 2620 "conffile.tab.c"
+#line 610 "conffile.y"
+                           { (yyval.match_opt_dst) = NULL; }
+#line 2622 "conffile.tab.c"
     break;
 
   case 88:
-#line 613 "conffile.y"
+#line 611 "conffile.y"
+                                       { (yyval.match_opt_dst) = (yyvsp[0].match_dsts2); }
+#line 2628 "conffile.tab.c"
+    break;
+
+  case 89:
+#line 615 "conffile.y"
                  {
 			char *err;
 			if (((yyval.match_dst) = ra_malloc(ralloc, sizeof(destinations))) == NULL) {
@@ -2634,23 +2642,23 @@ yyreduce:
 			}
 			(yyval.match_dst)->next = NULL;
 		 }
-#line 2638 "conffile.tab.c"
-    break;
-
-  case 89:
-#line 628 "conffile.y"
-                       { (yyval.match_opt_stop) = 0; }
-#line 2644 "conffile.tab.c"
+#line 2646 "conffile.tab.c"
     break;
 
   case 90:
-#line 629 "conffile.y"
-                                   { (yyval.match_opt_stop) = 1; }
-#line 2650 "conffile.tab.c"
+#line 630 "conffile.y"
+                       { (yyval.match_opt_stop) = 0; }
+#line 2652 "conffile.tab.c"
     break;
 
   case 91:
-#line 635 "conffile.y"
+#line 631 "conffile.y"
+                                   { (yyval.match_opt_stop) = 1; }
+#line 2658 "conffile.tab.c"
+    break;
+
+  case 92:
+#line 637 "conffile.y"
            {
 		char *err;
 		route *r = NULL;
@@ -2688,11 +2696,11 @@ yyreduce:
 			YYERROR;
 		}
 	   }
-#line 2692 "conffile.tab.c"
+#line 2700 "conffile.tab.c"
     break;
 
-  case 92:
-#line 682 "conffile.y"
+  case 93:
+#line 684 "conffile.y"
                  {
 		 	cluster *w;
 			aggregator *a;
@@ -2773,59 +2781,59 @@ yyreduce:
 			if ((yyvsp[-1].aggregate_opt_send_to) != NULL)
 				router_add_stubroute(rtr, AGGRSTUB, w, (yyvsp[-1].aggregate_opt_send_to));
 		 }
-#line 2777 "conffile.tab.c"
-    break;
-
-  case 93:
-#line 764 "conffile.y"
-                         { (yyval.aggregate_opt_timestamp) = TS_END; }
-#line 2783 "conffile.tab.c"
+#line 2785 "conffile.tab.c"
     break;
 
   case 94:
-#line 767 "conffile.y"
-                                           { (yyval.aggregate_opt_timestamp) = (yyvsp[-2].aggregate_ts_when); }
-#line 2789 "conffile.tab.c"
+#line 766 "conffile.y"
+                         { (yyval.aggregate_opt_timestamp) = TS_END; }
+#line 2791 "conffile.tab.c"
     break;
 
   case 95:
-#line 770 "conffile.y"
-                            { (yyval.aggregate_ts_when) = TS_START; }
-#line 2795 "conffile.tab.c"
+#line 769 "conffile.y"
+                                           { (yyval.aggregate_opt_timestamp) = (yyvsp[-2].aggregate_ts_when); }
+#line 2797 "conffile.tab.c"
     break;
 
   case 96:
-#line 771 "conffile.y"
-                                            { (yyval.aggregate_ts_when) = TS_MIDDLE; }
-#line 2801 "conffile.tab.c"
+#line 772 "conffile.y"
+                            { (yyval.aggregate_ts_when) = TS_START; }
+#line 2803 "conffile.tab.c"
     break;
 
   case 97:
-#line 772 "conffile.y"
-                                            { (yyval.aggregate_ts_when) = TS_END; }
-#line 2807 "conffile.tab.c"
+#line 773 "conffile.y"
+                                            { (yyval.aggregate_ts_when) = TS_MIDDLE; }
+#line 2809 "conffile.tab.c"
     break;
 
   case 98:
-#line 776 "conffile.y"
-                                  { (yyvsp[-1].aggregate_compute)->next = (yyvsp[0].aggregate_opt_compute); (yyval.aggregate_computes) = (yyvsp[-1].aggregate_compute); }
-#line 2813 "conffile.tab.c"
+#line 774 "conffile.y"
+                                            { (yyval.aggregate_ts_when) = TS_END; }
+#line 2815 "conffile.tab.c"
     break;
 
   case 99:
-#line 779 "conffile.y"
-                                          { (yyval.aggregate_opt_compute) = NULL; }
-#line 2819 "conffile.tab.c"
+#line 778 "conffile.y"
+                                  { (yyvsp[-1].aggregate_compute)->next = (yyvsp[0].aggregate_opt_compute); (yyval.aggregate_computes) = (yyvsp[-1].aggregate_compute); }
+#line 2821 "conffile.tab.c"
     break;
 
   case 100:
-#line 780 "conffile.y"
-                                                              { (yyval.aggregate_opt_compute) = (yyvsp[0].aggregate_computes); }
-#line 2825 "conffile.tab.c"
+#line 781 "conffile.y"
+                                          { (yyval.aggregate_opt_compute) = NULL; }
+#line 2827 "conffile.tab.c"
     break;
 
   case 101:
-#line 784 "conffile.y"
+#line 782 "conffile.y"
+                                                              { (yyval.aggregate_opt_compute) = (yyvsp[0].aggregate_computes); }
+#line 2833 "conffile.tab.c"
+    break;
+
+  case 102:
+#line 786 "conffile.y"
                                  {
 					(yyval.aggregate_compute) = ra_malloc(palloc, sizeof(struct _agcomp));
 					if ((yyval.aggregate_compute) == NULL) {
@@ -2837,47 +2845,47 @@ yyreduce:
 					(yyval.aggregate_compute)->metric = (yyvsp[0].crSTRING);
 					(yyval.aggregate_compute)->next = NULL;
 				 }
-#line 2841 "conffile.tab.c"
-    break;
-
-  case 102:
-#line 797 "conffile.y"
-                                  { (yyval.aggregate_comp_type).ctype = SUM; }
-#line 2847 "conffile.tab.c"
+#line 2849 "conffile.tab.c"
     break;
 
   case 103:
-#line 798 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = CNT; }
-#line 2853 "conffile.tab.c"
+#line 799 "conffile.y"
+                                  { (yyval.aggregate_comp_type).ctype = SUM; }
+#line 2855 "conffile.tab.c"
     break;
 
   case 104:
-#line 799 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = MAX; }
-#line 2859 "conffile.tab.c"
+#line 800 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = CNT; }
+#line 2861 "conffile.tab.c"
     break;
 
   case 105:
-#line 800 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = MIN; }
-#line 2865 "conffile.tab.c"
+#line 801 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = MAX; }
+#line 2867 "conffile.tab.c"
     break;
 
   case 106:
-#line 801 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = AVG; }
-#line 2871 "conffile.tab.c"
+#line 802 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = MIN; }
+#line 2873 "conffile.tab.c"
     break;
 
   case 107:
-#line 802 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = MEDN; }
-#line 2877 "conffile.tab.c"
+#line 803 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = AVG; }
+#line 2879 "conffile.tab.c"
     break;
 
   case 108:
 #line 804 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = MEDN; }
+#line 2885 "conffile.tab.c"
+    break;
+
+  case 109:
+#line 806 "conffile.y"
                                    {
 				    if ((yyvsp[0].crPERCENTILE) < 1 || (yyvsp[0].crPERCENTILE) > 99) {
 						router_yyerror(&yylloc, yyscanner, rtr, ralloc, palloc,
@@ -2887,35 +2895,35 @@ yyreduce:
 				   	(yyval.aggregate_comp_type).ctype = PCTL;
 					(yyval.aggregate_comp_type).pctl = (unsigned char)(yyvsp[0].crPERCENTILE);
 				   }
-#line 2891 "conffile.tab.c"
-    break;
-
-  case 109:
-#line 813 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = VAR; }
-#line 2897 "conffile.tab.c"
+#line 2899 "conffile.tab.c"
     break;
 
   case 110:
-#line 814 "conffile.y"
-                                                  { (yyval.aggregate_comp_type).ctype = SDEV; }
-#line 2903 "conffile.tab.c"
+#line 815 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = VAR; }
+#line 2905 "conffile.tab.c"
     break;
 
   case 111:
-#line 817 "conffile.y"
-                                     { (yyval.aggregate_opt_send_to) = NULL; }
-#line 2909 "conffile.tab.c"
+#line 816 "conffile.y"
+                                                  { (yyval.aggregate_comp_type).ctype = SDEV; }
+#line 2911 "conffile.tab.c"
     break;
 
   case 112:
-#line 818 "conffile.y"
-                                                         { (yyval.aggregate_opt_send_to) = (yyvsp[0].match_send_to); }
-#line 2915 "conffile.tab.c"
+#line 819 "conffile.y"
+                                     { (yyval.aggregate_opt_send_to) = NULL; }
+#line 2917 "conffile.tab.c"
     break;
 
   case 113:
-#line 824 "conffile.y"
+#line 820 "conffile.y"
+                                                         { (yyval.aggregate_opt_send_to) = (yyvsp[0].match_send_to); }
+#line 2923 "conffile.tab.c"
+    break;
+
+  case 114:
+#line 826 "conffile.y"
         {
 		char *err = router_set_statistics(rtr, (yyvsp[-1].match_dsts));
 		if (err != NULL) {
@@ -2926,11 +2934,11 @@ yyreduce:
 				"removed in a future version, use 'statistics send to ...' "
 				"instead\n");
 	}
-#line 2930 "conffile.tab.c"
+#line 2938 "conffile.tab.c"
     break;
 
-  case 114:
-#line 844 "conffile.y"
+  case 115:
+#line 846 "conffile.y"
                   {
 		  	char *err;
 		  	err = router_set_collectorvals(rtr, (yyvsp[-4].statistics_opt_interval), (yyvsp[-2].statistics_opt_prefix), (yyvsp[-3].statistics_opt_counters));
@@ -2948,17 +2956,17 @@ yyreduce:
 				}
 			}
 		  }
-#line 2952 "conffile.tab.c"
-    break;
-
-  case 115:
-#line 863 "conffile.y"
-                         { (yyval.statistics_opt_interval) = -1; }
-#line 2958 "conffile.tab.c"
+#line 2960 "conffile.tab.c"
     break;
 
   case 116:
 #line 865 "conffile.y"
+                         { (yyval.statistics_opt_interval) = -1; }
+#line 2966 "conffile.tab.c"
+    break;
+
+  case 117:
+#line 867 "conffile.y"
                                            {
 					   	if ((yyvsp[-1].crINTVAL) <= 0) {
 							router_yyerror(&yylloc, yyscanner, rtr,
@@ -2967,35 +2975,35 @@ yyreduce:
 						}
 						(yyval.statistics_opt_interval) = (yyvsp[-1].crINTVAL);
 					   }
-#line 2971 "conffile.tab.c"
-    break;
-
-  case 117:
-#line 875 "conffile.y"
-                                                               { (yyval.statistics_opt_counters) = CUM; }
-#line 2977 "conffile.tab.c"
+#line 2979 "conffile.tab.c"
     break;
 
   case 118:
-#line 876 "conffile.y"
-                                                                                   { (yyval.statistics_opt_counters) = SUB; }
-#line 2983 "conffile.tab.c"
+#line 877 "conffile.y"
+                                                               { (yyval.statistics_opt_counters) = CUM; }
+#line 2985 "conffile.tab.c"
     break;
 
   case 119:
-#line 879 "conffile.y"
-                                                        { (yyval.statistics_opt_prefix) = NULL; }
-#line 2989 "conffile.tab.c"
+#line 878 "conffile.y"
+                                                                                   { (yyval.statistics_opt_counters) = SUB; }
+#line 2991 "conffile.tab.c"
     break;
 
   case 120:
-#line 880 "conffile.y"
-                                                                            { (yyval.statistics_opt_prefix) = (yyvsp[0].crSTRING); }
-#line 2995 "conffile.tab.c"
+#line 881 "conffile.y"
+                                                        { (yyval.statistics_opt_prefix) = NULL; }
+#line 2997 "conffile.tab.c"
     break;
 
   case 121:
-#line 886 "conffile.y"
+#line 882 "conffile.y"
+                                                                            { (yyval.statistics_opt_prefix) = (yyvsp[0].crSTRING); }
+#line 3003 "conffile.tab.c"
+    break;
+
+  case 122:
+#line 888 "conffile.y"
           {
 	  	struct _rcptr *walk;
 		char *err;
@@ -3011,11 +3019,11 @@ yyreduce:
 			}
 		}
 	  }
-#line 3015 "conffile.tab.c"
+#line 3023 "conffile.tab.c"
     break;
 
-  case 122:
-#line 904 "conffile.y"
+  case 123:
+#line 906 "conffile.y"
                 {
 			if (((yyval.listener) = ra_malloc(palloc, sizeof(struct _lsnr))) == NULL) {
 				logerr("malloc failed\n");
@@ -3037,19 +3045,19 @@ yyreduce:
 				}
 			}
 		}
-#line 3041 "conffile.tab.c"
-    break;
-
-  case 123:
-#line 928 "conffile.y"
-                                 {
-				 	(yyval.transport_opt_ssl) = NULL;
-				 }
 #line 3049 "conffile.tab.c"
     break;
 
   case 124:
-#line 932 "conffile.y"
+#line 930 "conffile.y"
+                                 {
+				 	(yyval.transport_opt_ssl) = NULL;
+				 }
+#line 3057 "conffile.tab.c"
+    break;
+
+  case 125:
+#line 934 "conffile.y"
                                  {
 #ifdef HAVE_SSL
 					if (((yyval.transport_opt_ssl) = ra_malloc(palloc,
@@ -3067,11 +3075,11 @@ yyreduce:
 					YYERROR;
 #endif
 				 }
-#line 3071 "conffile.tab.c"
+#line 3079 "conffile.tab.c"
     break;
 
-  case 125:
-#line 952 "conffile.y"
+  case 126:
+#line 954 "conffile.y"
                                         {
 						if (((yyval.transport_mode_trans) = ra_malloc(palloc,
 								sizeof(struct _rcptr_trsp))) == NULL)
@@ -3081,11 +3089,11 @@ yyreduce:
 						}
 						(yyval.transport_mode_trans)->mode = W_PLAIN;
 					}
-#line 3085 "conffile.tab.c"
+#line 3093 "conffile.tab.c"
     break;
 
-  case 126:
-#line 962 "conffile.y"
+  case 127:
+#line 964 "conffile.y"
                                         {
 #ifdef HAVE_GZIP
 						if (((yyval.transport_mode_trans) = ra_malloc(palloc,
@@ -3102,11 +3110,11 @@ yyreduce:
 						YYERROR;
 #endif
 					}
-#line 3106 "conffile.tab.c"
+#line 3114 "conffile.tab.c"
     break;
 
-  case 127:
-#line 979 "conffile.y"
+  case 128:
+#line 981 "conffile.y"
                                         {
 #ifdef HAVE_LZ4
 						if (((yyval.transport_mode_trans) = ra_malloc(palloc,
@@ -3123,11 +3131,11 @@ yyreduce:
 						YYERROR;
 #endif
 					}
-#line 3127 "conffile.tab.c"
+#line 3135 "conffile.tab.c"
     break;
 
-  case 128:
-#line 996 "conffile.y"
+  case 129:
+#line 998 "conffile.y"
                                         {
 #ifdef HAVE_SNAPPY
 						if (((yyval.transport_mode_trans) = ra_malloc(palloc,
@@ -3144,11 +3152,11 @@ yyreduce:
 						YYERROR;
 #endif
 					}
-#line 3148 "conffile.tab.c"
+#line 3156 "conffile.tab.c"
     break;
 
-  case 129:
-#line 1015 "conffile.y"
+  case 130:
+#line 1017 "conffile.y"
                           { 
 				if (((yyval.transport_mode) = ra_malloc(palloc,
 						sizeof(struct _rcptr_trsp))) == NULL)
@@ -3158,11 +3166,11 @@ yyreduce:
 				}
 				(yyval.transport_mode)->mode = W_PLAIN;
 			  }
-#line 3162 "conffile.tab.c"
+#line 3170 "conffile.tab.c"
     break;
 
-  case 130:
-#line 1025 "conffile.y"
+  case 131:
+#line 1027 "conffile.y"
                           {
 			  	if ((yyvsp[0].transport_opt_ssl) == NULL) {
 					(yyval.transport_mode) = (yyvsp[-1].transport_mode_trans);
@@ -3171,29 +3179,29 @@ yyreduce:
 					(yyval.transport_mode)->mode |= (yyvsp[-1].transport_mode_trans)->mode;
 				}
 			  }
-#line 3175 "conffile.tab.c"
-    break;
-
-  case 131:
-#line 1035 "conffile.y"
-                                       { (yyvsp[-1].receptor)->next = (yyvsp[0].opt_receptor); (yyval.receptors) = (yyvsp[-1].receptor); }
-#line 3181 "conffile.tab.c"
+#line 3183 "conffile.tab.c"
     break;
 
   case 132:
-#line 1038 "conffile.y"
-                        { (yyval.opt_receptor) = NULL; }
-#line 3187 "conffile.tab.c"
+#line 1037 "conffile.y"
+                                       { (yyvsp[-1].receptor)->next = (yyvsp[0].opt_receptor); (yyval.receptors) = (yyvsp[-1].receptor); }
+#line 3189 "conffile.tab.c"
     break;
 
   case 133:
-#line 1039 "conffile.y"
-                                    { (yyval.opt_receptor) = (yyvsp[0].receptors);   }
-#line 3193 "conffile.tab.c"
+#line 1040 "conffile.y"
+                        { (yyval.opt_receptor) = NULL; }
+#line 3195 "conffile.tab.c"
     break;
 
   case 134:
-#line 1043 "conffile.y"
+#line 1041 "conffile.y"
+                                    { (yyval.opt_receptor) = (yyvsp[0].receptors);   }
+#line 3201 "conffile.tab.c"
+    break;
+
+  case 135:
+#line 1045 "conffile.y"
                 {
 			char *err;
 			void *hint = NULL;
@@ -3230,11 +3238,11 @@ yyreduce:
 			free(hint);
 			(yyval.receptor)->next = NULL;
 		}
-#line 3234 "conffile.tab.c"
+#line 3242 "conffile.tab.c"
     break;
 
-  case 135:
-#line 1080 "conffile.y"
+  case 136:
+#line 1082 "conffile.y"
                 {
 			char *err;
 
@@ -3254,32 +3262,32 @@ yyreduce:
 			}
 			(yyval.receptor)->next = NULL;
 		}
-#line 3258 "conffile.tab.c"
-    break;
-
-  case 136:
-#line 1101 "conffile.y"
-                   { (yyval.rcptr_proto) = CON_TCP; }
-#line 3264 "conffile.tab.c"
+#line 3266 "conffile.tab.c"
     break;
 
   case 137:
-#line 1102 "conffile.y"
-                           { (yyval.rcptr_proto) = CON_UDP; }
-#line 3270 "conffile.tab.c"
+#line 1103 "conffile.y"
+                   { (yyval.rcptr_proto) = CON_TCP; }
+#line 3272 "conffile.tab.c"
     break;
 
   case 138:
-#line 1108 "conffile.y"
+#line 1104 "conffile.y"
+                           { (yyval.rcptr_proto) = CON_UDP; }
+#line 3278 "conffile.tab.c"
+    break;
+
+  case 139:
+#line 1110 "conffile.y"
            {
 	   	if (router_readconfig(rtr, (yyvsp[0].crSTRING), 0, 0, 0, 0, 0, 0, 0) == NULL)
 			YYERROR;
 	   }
-#line 3279 "conffile.tab.c"
+#line 3287 "conffile.tab.c"
     break;
 
 
-#line 3283 "conffile.tab.c"
+#line 3291 "conffile.tab.c"
 
       default: break;
     }

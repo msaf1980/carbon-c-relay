@@ -19,4 +19,16 @@ cluster three failover
 	127.0.0.1:2025
 	;
 
+cluster four carbon_ch
+	127.0.0.1:2033
+	127.0.0.1:2034
+	127.0.0.1:2035
+	;
+
+cluster five lb
+	127.0.0.1:2043
+	127.0.0.1:2044
+	127.0.0.1:2045
+	;
+
 match * send to default;

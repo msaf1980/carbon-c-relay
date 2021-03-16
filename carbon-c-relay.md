@@ -223,7 +223,7 @@ cluster <name>
     [connections <count>]
     [ttl <minutes>]
     [threshold_start <count>] [threshold_end <count>]    
-    < <forward | any_of | failover> [useall] |
+    < <forward | any_of | failover | lb> [useall] |
       <carbon_ch | fnv1a_ch | jump_fnv1a_ch> [replication <count>] [dynamic] >
         <host[:port][=instance] [proto <udp | tcp>]
                                 [type linemode]
@@ -300,7 +300,7 @@ Optional `threshold_start` and `threshold_end` is clusterwide options like globa
 
 DNS hostnames are resolved to a single address, according to the preference
 rules in [RFC 3484](https://www.ietf.org/rfc/rfc3484.txt).  The
-`any_of`, `failover` and `forward` clusters have an explicit `useall`
+`any_of`, `failover`, `forward` and `lb` clusters have an explicit `useall`
 flag that enables expansion for hostnames resolving to multiple
 addresses.  Using this option Each address returned becomes a cluster
 destination.
@@ -348,6 +348,12 @@ consistent hashing clusters.
   member, so no hashing or balancing is taking place.  A `failover`
   cluster with two members will only send metrics to the second member
   if the first becomes unavailable.
+
+* `lb` cluster
+
+  The `lb` cluster is try to implement a cycle load-balance between servers.
+  All metrics are sent to at all members. 
+  NOT ALL graphite tools work with this well (due to random metric distribution).
 
 * `carbon_ch` cluster
 

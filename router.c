@@ -827,7 +827,8 @@ router_add_server(
 			w->next = NULL;
 			w->server = newserver;
 		} else if (cl->type == ANYOF ||
-				cl->type == FAILOVER)
+				cl->type == FAILOVER ||
+				cl->type == LB)
 		{
 			if (cl->members.anyof == NULL) {
 				cl->members.anyof = ra_malloc(ret->a, sizeof(serverlist));
@@ -906,6 +907,16 @@ router_add_cluster(router *r, cluster *cl)
 		for (w = cl->members.anyof->list; w != NULL; w = w->next) {
 			server_set_failover(w->server);
 		}
+	} else if (cl->type == LB) {
+		size_t i = 0;
+		cl->members.anyof->servers =
+			ra_malloc(r->a, sizeof(server *) * cl->members.anyof->count);
+		if (cl->members.anyof->servers == NULL) {
+			cluster_free(cl);
+			return ra_strdup(r->a, "malloc failed for failover servers");
+		}
+		for (w = cl->members.anyof->list; w != NULL; w = w->next)
+			cl->members.anyof->servers[i++] = w->server;
 	} else if (cl->type == ANYOF) {
 		size_t i = 0;
 		cl->members.anyof->servers =
@@ -1020,7 +1031,7 @@ cluster_new(char *name, allocator *a, enum clusttype ctype, route *m, size_t que
 		return NULL;
 	}
 
-	if (ctype == FAILOVER && queue_size > 0) {
+	if ((ctype == FAILOVER || ctype == LB) && queue_size > 0) {
 		/* shared queue */
 		cl->queue = queue_new(queuesize);
 		if (cl->queue == NULL) {
@@ -3136,7 +3147,8 @@ router_route_intern(
 						(*curlen)++;
 						wassent = 1;
 					}	break;
-					case FAILOVER: {
+					case FAILOVER: 
+					case LB: {
 						/* queue to the shared queue, so use first server */
 						failif(retsize, *curlen + 1);
 						ret[*curlen].dest = d->cl->members.anyof->servers[0];
@@ -3541,25 +3553,32 @@ router_test_intern(char *metric, char *firstspace, route *routes)
 									server_port(dst[i].dest));
 						}
 					}	break;
-					case FAILOVER:
+					
 					case ANYOF: {
 						unsigned int hash;
+						const char *p;
 
-						fprintf(stdout, "    %s(%s)\n",
-								d->cl->type == ANYOF ? "any_of" : "failover",
+						fprintf(stdout, "    any_of(%s)\n",
 								d->cl->name);
 						if (gotmatch & 4)
 							break;
-						if (d->cl->type == ANYOF) {
-							const char *p;
-							fnv1a_32(hash, p, metric, firstspace);
-							hash %= d->cl->members.anyof->count;
-						} else {
-							hash = 0;
-						}
+
+						fnv1a_32(hash, p, metric, firstspace);
+						hash %= d->cl->members.anyof->count;
 						fprintf(stdout, "        %s:%d\n",
 								serverip(d->cl->members.anyof->servers[hash]),
 								server_port(d->cl->members.anyof->servers[hash]));
+					}	break;
+					case FAILOVER:
+					case LB: {
+						fprintf(stdout, "    %s(%s)\n",
+								d->cl->type == LB ? "lb" : "failover",
+								d->cl->name);
+						if (gotmatch & 4)
+							break;
+						fprintf(stdout, "        %s:%d\n",
+								serverip(d->cl->members.anyof->servers[0]),
+								server_port(d->cl->members.anyof->servers[0]));
 					}	break;
 					case VALIDATION: {
 						char *lastspc = firstspace + strlen(firstspace);
