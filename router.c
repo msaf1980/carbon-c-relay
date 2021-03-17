@@ -2130,6 +2130,12 @@ router_printconfig(router *rtr, FILE *f, char pmode)
 				fprintf(f, "        %s:%d%s" PTYPEFMT PTRNSPFMT "\n",
 						serverip(s->server), server_port(s->server),
 						PPROTO, PTYPE, PTRNSP);
+		} else if (c->type == LB) {
+			fprintf(f, "    lb\n");
+			for (s = c->members.anyof->list; s != NULL; s = s->next)
+				fprintf(f, "        %s:%d%s" PTYPEFMT PTRNSPFMT "\n",
+						serverip(s->server), server_port(s->server),
+						PPROTO, PTYPE, PTRNSP);
 		} else if (c->type == CARBON_CH ||
 				c->type == FNV1A_CH ||
 				c->type == JUMP_CH)
