@@ -219,12 +219,12 @@ input until the end of that line:
 
 ```
 cluster <name>
+    < <forward | any_of | failover | lb> [useall] |
+      <carbon_ch | fnv1a_ch | jump_fnv1a_ch> [replication <count>] [dynamic] >
     [threads <count>]
     [connections <count>]
     [ttl <minutes>]
     [threshold_start <count>] [threshold_end <count>]    
-    < <forward | any_of | failover | lb> [useall] |
-      <carbon_ch | fnv1a_ch | jump_fnv1a_ch> [replication <count>] [dynamic] >
         <host[:port][=instance] [proto <udp | tcp>]
                                 [type linemode]
                                 [transport <plain | gzip | lz4 | snappy>
