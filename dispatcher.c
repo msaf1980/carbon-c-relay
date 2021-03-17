@@ -1583,13 +1583,13 @@ dispatch_new(
 	}
 
 	if ((ret->evbase = event_base_new()) == NULL) {
-		queue_free(ret->notify_queue);
+		queue_destroy(ret->notify_queue);
 		free(ret);
 		return NULL;
 	}
 
 	if (socketpair(AF_LOCAL, SOCK_STREAM, 0, ret->notify_fd) == -1) {
-		queue_free(ret->notify_queue);
+		queue_destroy(ret->notify_queue);
 		event_base_free(ret->evbase);
 		free(ret);
 		return NULL;
@@ -1600,7 +1600,7 @@ dispatch_new(
 	if (ret->notify_ev == NULL) {
 		close(ret->notify_fd[0]);
 		close(ret->notify_fd[1]);
-		queue_free(ret->notify_queue);
+		queue_destroy(ret->notify_queue);
 		event_base_free(ret->evbase);
 		free(ret);
 		return NULL;
