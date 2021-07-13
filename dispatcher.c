@@ -345,7 +345,11 @@ gzipnew(size_t isize, z_strm *basestrm, size_t *osize)
 	zstrm->hdl.gz.z.zfree = Z_NULL;
 	zstrm->hdl.gz.z.opaque = Z_NULL;
 	zstrm->ipos = 0;
-	inflateInit2(&(zstrm->hdl.gz.z), 15 + 16);
+	if (inflateInit2(&(zstrm->hdl.gz.z), 15 + 16) != Z_OK)
+	{
+		free(zstrm);
+		return NULL;
+	}
 	zstrm->hdl.gz.inflatemode = Z_SYNC_FLUSH;
 
 	zstrm->hdl.gz.z.next_in = (Bytef *)zstrm->ibuf;
